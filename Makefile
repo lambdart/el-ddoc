@@ -1,21 +1,43 @@
-EMACS ?= emacs
-CASK ?= cask
+# Emacs invocation
+# Don't load an init file: -q
+# Avoid processing X resources: -Q
+# Send messages to stderr: --batch
+EMACS = emacs -Q -q --batch
 
-all: test
+# Remove command
+RM = rm
 
-test: clean-elc
-	${MAKE} unit
-	${MAKE} compile
-	${MAKE} unit
-	${MAKE} clean-elc
+# Additional emacs load-path and autoload
+LOAD_PATH := -L ${PWD}
+LOAD_AUTOLOAD := -l autoload
 
-unit:
-	${CASK} exec ert-runner
+# Define Compile Command
+# Call batch-byte-compile function: -f
+COMPILE  = -f batch-byte-compile
 
-compile:
-	${CASK} exec ${EMACS} -Q -batch -f batch-byte-compile dash-docs.el
+# AUTOLOAD related variables
+AUTOLOAD_UPDATE = -f batch-update-autoloads
+AUTOLOAD_FILE := "${PWD}/dash-docs-autoloads.el"
+AUTOLOAD_EVAL := --eval '(setq generated-autoload-file ${AUTOLOAD_FILE})'
 
-clean-elc:
-	rm -f dash-docs.elc
+# Expand the source code files
+EL != ls *.el
 
-.PHONY:	all test unit compile
+# Compiled files
+ELC = ${EL:.el=.elc}
+
+# Default goal
+all: compile autoload
+
+# Compile needed files
+compile: $(ELC)
+
+# Translate lisp text (.el) files in byte compiled (.elc) files
+$(ELC): $(EL)
+	${EMACS} ${LOAD_PATH} ${COMPILE} ${.ALLSRC}
+
+autoload:
+	${EMACS} ${LOAD_AUTOLOAD} ${AUTOLOAD_EVAL} ${AUTOLOAD_UPDATE}
+
+clean:
+	${RM} ${ELC}
