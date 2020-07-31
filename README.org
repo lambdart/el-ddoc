@@ -65,7 +65,11 @@
 
    Search a specific docset:
 
+   #+BEGIN_SRC emacs-lisp
+
    (dash-docs-search-docset "<docset>" "<pattern>")
+
+   #+END_SRC
 
    The command `dash-docs-reset-connections` will clear the connections
    to all sqlite db's. Use it in case of errors when adding new docsets.
@@ -73,14 +77,14 @@
 
 * Customize
 
-  - =dash-docs-docsets-path= :: is the prefix for your docsets.
-    Defaults to ~/.docsets
+  - =dash-docs-docsets-path= :: is the prefix for your docsets,
+    defaults to =~/.docsets=.
 
   - =dash-docs-min-length= :: tells dash-docs from which length to start
-    searching. Defaults to 3.
+    searching, defaults to =3=.
 
   - =dash-docs-browser-func= :: is a function to encapsulate the way to browse
-    Dash' docsets. Defaults to browse-url. For example, if you want to use eww to
+    Dash' docsets, defaults to =browse-url=. For example, if you want to use eww to
     browse your docsets, you can do: =(setq dash-docs-browser-func 'eww)=.
 
   When =dash-docs-enable-debugging= is non-nil stderr from sqlite queries is
