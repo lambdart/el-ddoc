@@ -74,14 +74,14 @@
 * Customize
 
   - =dash-docs-docsets-path= :: is the prefix for your docsets.
-  Defaults to ~/.docsets
+    Defaults to ~/.docsets
 
   - =dash-docs-min-length= :: tells dash-docs from which length to start
-  searching. Defaults to 3.
+    searching. Defaults to 3.
 
   - =dash-docs-browser-func= :: is a function to encapsulate the way to browse
-  Dash' docsets. Defaults to browse-url. For example, if you want to use eww to
-  browse your docsets, you can do: =(setq dash-docs-browser-func 'eww)=.
+    Dash' docsets. Defaults to browse-url. For example, if you want to use eww to
+    browse your docsets, you can do: =(setq dash-docs-browser-func 'eww)=.
 
   When =dash-docs-enable-debugging= is non-nil stderr from sqlite queries is
   captured and displayed in a buffer. The default value is =t=. Setting this
@@ -91,8 +91,8 @@
 * Variables
 ** Common
 
-   - =dash-docs-common-docsets= :: is a list that should contain the docsets
-   to be active always. In all buffers.
+   - =dash-docs-common-docsets= :: is a list that should contain the
+     docsets to be active always. In all buffers.
 
 ** Local
 
