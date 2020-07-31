@@ -1,0 +1,148 @@
+#+TITLE: Dash-docs README
+#+AUTHOR: esac
+#+EMAIL: esac-io@tutanota.com
+#+DESCRIPTION: Elisp interface to query and show documenation using dash!
+#+KEYWORDS: emacs, dash, dash docs, documentation
+#+LANGUAGE: en
+
+* Dash Docs
+
+  This package provides an =Elisp= interface to query and show
+  documentation using [[http://www.kapeli.com/dash][Dash]] docsets.
+
+  It doesn't require =Dash= app, we rely on any
+  =html= file browser, however =eww= is recommended!
+
+* Requirements
+
+  - SQLite3
+
+* Dependencies
+
+  - cl-lib
+  - json
+  - xml
+  - format-spec
+  - async
+  - thingatpt
+  - gnutls
+
+* Installation
+** Package
+** Docsets
+
+   Dash-docs uses the same docsets as [[http://www.kapeli.com/dash][Dash]].
+
+   You can install them with =M-x dash-docs-install-docset= for the
+   official docsets or =M-x dash-docs-install-user-docset= for user
+   contributed docsets (experimental).
+
+   To install a docset from a file in your drive you can use
+   =M-x dash-docs-install-docset-from-file=.
+
+   That function takes as input a ~tgz~ file that you obtained,
+   starting from a folder named =<docset-name>.docset=, with the command:
+
+   #+BEGIN_SRC sh
+
+   tar --exclude='.DS_Store' -cvzf <docset-name>.tgz <docset-name>.docset
+
+   #+END_SRC
+
+   as explained [[https://kapeli.com/docsets#dashdocsetfeed][here]].
+
+* Usage
+** Interactive
+** Library
+
+   Search all currently enabled docsets -
+   =dash-docs-docsets= or =dash-docs-common-docsets=:
+
+   #+BEGIN_SRC emacs-lisp
+
+   (dash-docs-search "<pattern>")
+
+   #+END_SRC
+
+   Search a specific docset:
+
+   (dash-docs-search-docset "<docset>" "<pattern>")
+
+   The command `dash-docs-reset-connections` will clear the connections
+   to all sqlite db's. Use it in case of errors when adding new docsets.
+   The next call to a search function will recreate them.
+
+* Customize
+
+  - =dash-docs-docsets-path= :: is the prefix for your docsets.
+  Defaults to ~/.docsets
+
+  - =dash-docs-min-length= :: tells dash-docs from which length to start
+  searching. Defaults to 3.
+
+  - =dash-docs-browser-func= :: is a function to encapsulate the way to browse
+  Dash' docsets. Defaults to browse-url. For example, if you want to use eww to
+  browse your docsets, you can do: =(setq dash-docs-browser-func 'eww)=.
+
+  When =dash-docs-enable-debugging= is non-nil stderr from sqlite queries is
+  captured and displayed in a buffer. The default value is =t=. Setting this
+  to =nil= may speed up queries on some machines (capturing stderr requires
+  the creation and deletion of a temporary file for each query).
+
+* Variables
+** Common
+
+   - =dash-docs-common-docsets= :: is a list that should contain the docsets
+   to be active always. In all buffers.
+
+** Local
+
+   Different subsets of docsets can be activated depending on the
+   buffer. For the moment (it may change in the future) we decided it's a
+   plain local variable you should setup for every different
+   filetype. This way you can also do fancier things like project-wise
+   docsets sets.
+
+   #+BEGIN_SRC emacs-lisp
+
+   (defun go-doc ()
+     (interactive)
+     (setq-local dash-docs-docsets '("Go")))
+
+   (add-hook 'go-mode-hook 'go-doc)
+
+   #+END_SRC
+
+* FAQ
+
+  - Does it work in OSX/Windows, any support soon?
+    Nope!
+
+  - I get nil for every search I do!
+    Make sure you don't have SQLite3 .mode column but .mode list (the
+    default). Check your ~.sqliterc~.
+
+  - When selecting an item in dash-docs, no browser lookup occurs
+    with =Firefox= and =Emacs= >= 24.4:
+    Try:
+
+    #+BEGIN_SRC emacs-lisp
+
+    (setq browse-url-browser-function 'browse-url-generic
+          browse-url-generic-program "/path/to/firefox")
+
+    (setq dash-docs-browser-func 'browse-url-generic)
+
+    #+END_SRC
+
+* Contribution
+
+  We ♥ feedback, issues or pull requests. Feel free to contribute
+  in dash-docs. We're trying to add tests to the project,
+  if you send a PR please consider add new or
+  update the existing ones.
+
+* Authors
+
+  - Toni Reina <areina0@gmail.com>
+  - Raimon Grau <raimonster@gmail.com>
