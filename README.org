@@ -122,8 +122,9 @@
     default). Check your ~.sqliterc~.
 
   - When selecting an item in dash-docs, no browser lookup occurs
-    with =Firefox= and =Emacs= >= 24.4:\\
-    Try:\\
+    with =Firefox= and =Emacs= >= 24.4: \\
+
+    Try: \\
 
     #+BEGIN_SRC emacs-lisp
     ;; customize function to display the current
