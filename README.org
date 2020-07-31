@@ -1,11 +1,10 @@
-#+TITLE: Dash-docs README
 #+AUTHOR: esac
 #+EMAIL: esac-io@tutanota.com
 #+DESCRIPTION: Elisp interface to query and show documenation using dash!
 #+KEYWORDS: emacs, dash, dash docs, documentation
 #+LANGUAGE: en
 
-* Dash Docs
+* Dash-Docs
 
   This package provides an =Elisp= interface to query and show
   documentation using [[http://www.kapeli.com/dash][Dash]] docsets.
