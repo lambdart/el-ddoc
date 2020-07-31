@@ -126,12 +126,19 @@
     Try:
 
     #+BEGIN_SRC emacs-lisp
+    ;; customize function to display the current
+    ;; buffer in a ww browser
+    (customize-set-variable
+     'browse-url-browser-function 'browse-url-generic)
 
-    (setq browse-url-browser-function 'browse-url-generic
-          browse-url-generic-program "/path/to/firefox")
+    ;; customize the name of the browser program used
+    ;; by `browse-url-generic'
+    (customize-set-variable
+     'browse-url-generic-program "/path/to/firefox")
 
-    (setq dash-docs-browser-func 'browse-url-generic)
-
+    ;; customize default function to browse Dash’s docsets
+    (customize-set-variable
+     'dash-docs-browser-func 'browse-url-generic)
     #+END_SRC
 
 * Contribution
