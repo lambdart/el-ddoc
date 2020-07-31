@@ -1,16 +1,13 @@
 ;;; dash-docs.el --- Offline documentation browser using Dash docsets.  -*- lexical-binding: t; -*-
 ;; Copyright (C) 2013-2014  Raimon Grau
 ;; Copyright (C) 2013-2014  Toni Reina
+;; Copyright (C) 2020       esac
 
 ;; Author: Raimon Grau <raimonster@gmail.com>
 ;;         Toni Reina  <areina0@gmail.com>
 ;;         Bryan Gilbert <bryan@bryan.sh>
+;;         esac <esac-io@tutanota.com>
 ;;
-;; URL: http://github.com/areina/helm-dash
-;; Version: 1.4.0
-;; Package-Requires: ((emacs "24.4") (cl-lib "0.5") (async "1.9.3"))
-;; Keywords: docs
-
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
@@ -27,9 +24,9 @@
 ;;; Commentary:
 ;;
 ;; A library that exposes functionality to work with and search dash
-;; docsets.
+;; docsets, will be transform also in a minor-mode (work in progress).
 ;;
-;; More info in the project site https://github.com/areina/helm-dash
+;; More info in the project site https://github.com/esacio/dash-docs
 ;;
 ;;; Code:
 
@@ -40,6 +37,9 @@
 (require 'async)
 (require 'thingatpt)
 (require 'gnutls)
+
+(eval-when-compile
+  (require 'cl-macs))
 
 (defgroup dash-docs nil
   "Search Dash docsets."
@@ -87,6 +87,14 @@ Setting this to nil may speed up queries."
   :type 'boolean
   :group 'dash-docs)
 
+(defcustom dash-docs-browser-func 'browse-url
+  "Default function to browse Dash's docsets.
+Suggested values are:
+ * `browse-url'
+ * `eww'"
+  :type 'function
+  :group 'dash-docs)
+
 (defvar dash-docs-common-docsets
   '() "List of Docsets to search active by default.")
 
@@ -103,7 +111,6 @@ the default except when using Emacs 27.
 
 For more information see https://github.com/magit/ghub/issues/81
 and https://debbugs.gnu.org/cgi/bugreport.cgi?bug=34341.")
-
 
 (defun dash-docs-docset-path (docset)
   "Return the full path of the directory for DOCSET."
@@ -125,14 +132,6 @@ and https://debbugs.gnu.org/cgi/bugreport.cgi?bug=34341.")
 
 (defvar dash-docs--connections nil
   "List of conses like (\"Go\" . connection).")
-
-(defcustom dash-docs-browser-func 'browse-url
-  "Default function to browse Dash's docsets.
-Suggested values are:
- * `browse-url'
- * `eww'"
-  :type 'function
-  :group 'dash-docs)
 
 (defun dash-docs-docsets-path ()
   "Return the path where Dash's docsets are stored."
@@ -331,28 +330,33 @@ If doesn't exist, it asks to create it."
   (interactive (list (dash-docs-read-docset
                       "Install docset"
                       (mapcar 'car (dash-docs-unofficial-docsets)))))
-  (when (dash-docs--ensure-created-docsets-path (dash-docs-docsets-path))
-    (dash-docs--install-docset (car (assoc-default docset-name (dash-docs-unofficial-docsets))) docset-name)))
+  (when (dash-docs--ensure-created-docsets-path
+         (dash-docs-docsets-path))
+    (dash-docs--install-docset
+     (car (assoc-default
+           docset-name
+           (dash-docs-unofficial-docsets))) docset-name)))
 
 (defun dash-docs-extract-and-get-folder (docset-temp-path)
-  "Extract DOCSET-TEMP-PATH to DASH-DOCS-DOCSETS-PATH, and return the folder that was newly extracted."
+  "Extract DOCSET-TEMP-PATH to DASH-DOCS-DOCSETS-PATH,
+and return the folder that was newly extracted."
   (with-temp-buffer
     (let* ((call-process-args (list "tar" nil t nil))
-	   (process-args (list
-			  "xfv" docset-temp-path
-			  "-C" (dash-docs-docsets-path)))
-	   ;; On Windows, several elements need to be removed from filenames, see
-	   ;; https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#naming-conventions.
-	   ;; We replace with underscores on windows. This might lead to broken links.
-	   (windows-args (list "--force-local" "--transform" "s/[<>\":?*^|]/_/g"))
-	   (result (apply #'call-process
-			  (append call-process-args process-args (when (eq system-type 'windows-nt) windows-args)))))
+       (process-args (list
+              "xfv" docset-temp-path
+              "-C" (dash-docs-docsets-path)))
+       ;; On Windows, several elements need to be removed from filenames, see
+       ;; https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#naming-conventions.
+       ;; We replace with underscores on windows. This might lead to broken links.
+       (windows-args (list "--force-local" "--transform" "s/[<>\":?*^|]/_/g"))
+       (result (apply #'call-process
+              (append call-process-args process-args (when (eq system-type 'windows-nt) windows-args)))))
       (goto-char (point-max))
       (cond
        ((and (not (equal result 0))
-	     ;; TODO: Adjust to proper text. Also requires correct locale.
-	     (search-backward "too long" nil t))
-	(error "Failed to extract %s to %s. Filename too long. Consider changing `dash-docs-docsets-path' to a shorter value" docset-temp-path (dash-docs-docsets-path)))
+         ;; TODO: Adjust to proper text. Also requires correct locale.
+         (search-backward "too long" nil t))
+    (error "Failed to extract %s to %s. Filename too long. Consider changing `dash-docs-docsets-path' to a shorter value" docset-temp-path (dash-docs-docsets-path)))
        ((not (equal result 0)) (error "Failed to extract %s to %s. Error: %s" docset-temp-path (dash-docs-docsets-path) result)))
       (goto-char (point-max))
       (replace-regexp-in-string "^x " "" (car (split-string (thing-at-point 'line) "\\." t))))))
@@ -573,6 +577,44 @@ Get required params to call `dash-docs-result-url' from SEARCH-RESULT."
   (when (>= (length pattern) dash-docs-min-length)
     (cl-loop for docset in (dash-docs-maybe-narrow-docsets pattern)
              appending (dash-docs-search-docset docset pattern))))
+
+(defun dash-docs-candidates ()
+  "Provide dash-doc candidates."
+  ;; create connections to sqlite docsets for common docsets
+  (dash-docs-create-common-connections)
+  (let ((candidates
+         (cl-loop
+          for docset in (dash-docs-maybe-narrow-docsets "")
+          appending (dash-docs-search-docset docset ""))))
+    candidates))
+
+;; parse function (search)
+(defun dash-docs-search-result (wanted candidates)
+  "Get the WANTED search result from docs CANDIDATES."
+  (let* ((i 0)
+         (n (catch 'nth-elt
+              (dolist (candidate candidates)
+                (when (equal wanted (car candidate))
+                  (throw 'nth-elt i))
+                (setq i (+ 1 i)))))
+         ;; attributes from candidates -> (())
+         (search-result (nth n candidates)))
+    ;; remove first element from search results
+    (pop search-result)
+    ;; return search result
+    search-result))
+
+;;;###autoload
+(defun dash-docs-search-docs ()
+  "Search documentation using `dash-docs' capabilities."
+  (interactive)
+  (let* ((candidates (dash-docs-candidates))
+         (candidate (completing-read "Docs: " candidates nil t)))
+    (cond ((eq candidate "")
+           (message "Empty, please provide a search string"))
+          ;; default
+          (t (dash-docs-browse-url
+              (dash-docs-search-result candidate candidates))))))
 
 (provide 'dash-docs)
 
