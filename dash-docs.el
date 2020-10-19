@@ -34,7 +34,7 @@
 (require 'json)
 (require 'xml)
 (require 'format-spec)
-(require 'async)
+;; (require 'request)
 (require 'thingatpt)
 (require 'gnutls)
 
@@ -97,20 +97,6 @@ Suggested values are:
 
 (defvar dash-docs-common-docsets
   '() "List of Docsets to search active by default.")
-
-(defvar dash-docs-use-workaround-for-emacs-bug
-  (and (< emacs-major-version 27) 'force)
-  "Whether to use a kludge that hopefully works around an Emacs bug.
-
-In Emacs versions before 27 there is a bug that causes network
-connections to fail sometimes.  If this variable is non-nil, then
-dash-docs works around that by binding `gnutls-algorithm-priority' to
-\"NORMAL:-VERS-TLS1.3\", unless we think it is unnecessary.  If
-`force' then always use the workaround.  Currently the latter is
-the default except when using Emacs 27.
-
-For more information see https://github.com/magit/ghub/issues/81
-and https://debbugs.gnu.org/cgi/bugreport.cgi?bug=34341.")
 
 (defun dash-docs-docset-path (docset)
   "Return the full path of the directory for DOCSET."
@@ -215,32 +201,9 @@ The Argument DB-PATH should be a string with the sqlite db path."
         "DASH"
       "ZDASH")))
 
-(defmacro dash-docs-with-emacs-bug-workaround (&rest body)
-  "Optionally apply a workaround to an Emacs bug and execute BODY.
-
-In Emacs versions before 27 there is a bug that causes network
-connections to fail sometimes.  If `dash-docs-use-workaround-for-emacs-bug'
-variable is non-nil, then dash-docs works around that by binding
-`gnutls-algorithm-priority' to \"NORMAL:-VERS-TLS1.3\", unless we
-think it is unnecessary.  If `force' then always use the workaround.
-Currently the latter is the default except when using Emacs 27.
-
-For more information see https://github.com/magit/ghub/issues/81
-and https://debbugs.gnu.org/cgi/bugreport.cgi?bug=34341."
-  `(let ((gnutls-algorithm-priority
-          (if (and dash-docs-use-workaround-for-emacs-bug
-                   (or (eq dash-docs-use-workaround-for-emacs-bug 'force)
-                       (and (not gnutls-algorithm-priority)
-                            (< emacs-major-version 27))))
-              "NORMAL:-VERS-TLS1.3"
-            ,gnutls-algorithm-priority)))
-     ,@body))
-
 (defun dash-docs-read-json-from-url (url)
   "Read and return a JSON object from URL."
-  (with-current-buffer
-      (dash-docs-with-emacs-bug-workaround
-       (url-retrieve-synchronously url))
+  (with-current-buffer (url-retrieve-synchronously url)
     (goto-char url-http-end-of-headers)
     (json-read)))
 
@@ -312,8 +275,7 @@ Report an error unless a valid docset is selected."
 (defun dash-docs--install-docset (url docset-name)
   "Download a docset from URL and install with name DOCSET-NAME."
   (let ((docset-tmp-path (format "%s%s-docset.tgz" temporary-file-directory docset-name)))
-    (dash-docs-with-emacs-bug-workaround
-     (url-copy-file url docset-tmp-path t))
+    (url-copy-file url docset-tmp-path t)
     (dash-docs-install-docset-from-file docset-tmp-path)))
 
 (defun dash-docs--ensure-created-docsets-path (docset-path)
@@ -342,21 +304,21 @@ If doesn't exist, it asks to create it."
 and return the folder that was newly extracted."
   (with-temp-buffer
     (let* ((call-process-args (list "tar" nil t nil))
-       (process-args (list
-              "xfv" docset-temp-path
-              "-C" (dash-docs-docsets-path)))
-       ;; On Windows, several elements need to be removed from filenames, see
-       ;; https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#naming-conventions.
-       ;; We replace with underscores on windows. This might lead to broken links.
-       (windows-args (list "--force-local" "--transform" "s/[<>\":?*^|]/_/g"))
-       (result (apply #'call-process
-              (append call-process-args process-args (when (eq system-type 'windows-nt) windows-args)))))
+           (process-args (list
+                          "xfv" docset-temp-path
+                          "-C" (dash-docs-docsets-path)))
+           ;; On Windows, several elements need to be removed from filenames, see
+           ;; https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#naming-conventions.
+           ;; We replace with underscores on windows. This might lead to broken links.
+           (windows-args (list "--force-local" "--transform" "s/[<>\":?*^|]/_/g"))
+           (result (apply #'call-process
+                          (append call-process-args process-args (when (eq system-type 'windows-nt) windows-args)))))
       (goto-char (point-max))
       (cond
        ((and (not (equal result 0))
-         ;; TODO: Adjust to proper text. Also requires correct locale.
-         (search-backward "too long" nil t))
-    (error "Failed to extract %s to %s. Filename too long. Consider changing `dash-docs-docsets-path' to a shorter value" docset-temp-path (dash-docs-docsets-path)))
+             ;; TODO: Adjust to proper text. Also requires correct locale.
+             (search-backward "too long" nil t))
+        (error "Failed to extract %s to %s. Filename too long. Consider changing `dash-docs-docsets-path' to a shorter value" docset-temp-path (dash-docs-docsets-path)))
        ((not (equal result 0)) (error "Failed to extract %s to %s. Error: %s" docset-temp-path (dash-docs-docsets-path) result)))
       (goto-char (point-max))
       (replace-regexp-in-string "^x " "" (car (split-string (thing-at-point 'line) "\\." t))))))
@@ -382,31 +344,12 @@ and return the folder that was newly extracted."
   (when (dash-docs--ensure-created-docsets-path (dash-docs-docsets-path))
     (let ((feed-url (format "%s/%s.xml" dash-docs-docsets-url docset-name))
           (feed-tmp-path (format "%s%s-feed.xml" temporary-file-directory docset-name)))
-      (dash-docs-with-emacs-bug-workaround
-       (url-copy-file feed-url feed-tmp-path t))
+      (url-copy-file feed-url feed-tmp-path t)
       (dash-docs--install-docset (dash-docs-get-docset-url feed-tmp-path) docset-name))))
 
-;;;###autoload
-(defun dash-docs-async-install-docset (docset-name)
-  "Asynchronously download docset with specified DOCSET-NAME and move its stuff to docsets-path."
-  (interactive (list (dash-docs-read-docset "Install docset" (dash-docs-official-docsets))))
-  (when (dash-docs--ensure-created-docsets-path (dash-docs-docsets-path))
-    (let ((feed-url (format "%s/%s.xml" dash-docs-docsets-url docset-name)))
-      (message (concat "The docset \"" docset-name "\" will now be installed asynchronously."))
-      (async-start ; First async call gets the docset meta data
-       (lambda ()
-         ;; Beware! This lambda is run in it's own instance of emacs.
-         (dash-docs-with-emacs-bug-workaround
-          (url-file-local-copy feed-url)))
-       (lambda (filename)
-         (let ((docset-url (dash-docs-get-docset-url filename)))
-           (async-start     ; Second async call gets the docset itself
-            (lambda ()
-              ;; Beware! This lambda is run in it's own instance of emacs.
-              (dash-docs-with-emacs-bug-workaround
-               (url-file-local-copy docset-url)))
-            (lambda (docset-tmp-path)
-              (dash-docs-async-install-docset-from-file docset-tmp-path)))))))))
+;; ;;;###autoload
+;; (defun dash-docs-async-install-docset (docset)
+;;   "Asynchronously download DOCSET."
 
 ;;;###autoload
 (defun dash-docs-async-install-docset-from-file (docset-tmp-path)
