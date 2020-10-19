@@ -26,17 +26,14 @@
 ;; A library that exposes functionality to work with and search dash
 ;; docsets, will be transform also in a minor-mode (work in progress).
 ;;
-;; More info in the project site https://github.com/esacio/dash-docs
-;;
 ;;; Code:
 
-(require 'cl-lib)
-(require 'json)
+(require 'url)
 (require 'xml)
-(require 'format-spec)
-;; (require 'request)
+(require 'json)
+(require 'cl-lib)
 (require 'thingatpt)
-(require 'gnutls)
+(require 'format-spec)
 
 (eval-when-compile
   (require 'cl-macs))
@@ -46,12 +43,7 @@
   :prefix "dash-docs-"
   :group 'applications)
 
-(defcustom dash-docs-docsets-path
-  (let ((original-dash-path (expand-file-name "~/Library/Application Support/Dash/DocSets")))
-    (if (and (string-equal system-type 'darwin)
-             (file-directory-p original-dash-path))
-        original-dash-path
-      (expand-file-name "~/.docsets")))
+(defcustom dash-docs-docsets-path (expand-file-name "~/.docsets")
   "Default path for docsets.
 If you're setting this option manually, set it to an absolute
 path.  You can use `expand-file-name' function for that."
@@ -68,6 +60,12 @@ path.  You can use `expand-file-name' function for that."
   "Minimum length to start searching in docsets.
 0 facilitates discoverability, but may be a bit heavy when lots
 of docsets are active.  Between 0 and 3 is sane."
+  :type 'integer
+  :group 'dash-docs)
+
+(defcustom dash-docs-retrieve-url-timeout 5
+  "It should be a number that says (in seconds)
+how long to wait for a response before giving up."
   :type 'integer
   :group 'dash-docs)
 
@@ -203,8 +201,8 @@ The Argument DB-PATH should be a string with the sqlite db path."
 
 (defun dash-docs-read-json-from-url (url)
   "Read and return a JSON object from URL."
-  (with-current-buffer (url-retrieve-synchronously url)
-    (goto-char url-http-end-of-headers)
+  (with-current-buffer
+      (url-retrieve-synchronously url t t dash-docs-retrieve-url-timeout)
     (json-read)))
 
 (defun dash-docs-unofficial-docsets ()
@@ -307,12 +305,8 @@ and return the folder that was newly extracted."
            (process-args (list
                           "xfv" docset-temp-path
                           "-C" (dash-docs-docsets-path)))
-           ;; On Windows, several elements need to be removed from filenames, see
-           ;; https://docs.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file#naming-conventions.
-           ;; We replace with underscores on windows. This might lead to broken links.
-           (windows-args (list "--force-local" "--transform" "s/[<>\":?*^|]/_/g"))
            (result (apply #'call-process
-                          (append call-process-args process-args (when (eq system-type 'windows-nt) windows-args)))))
+                          (append call-process-args process-args nil))))
       (goto-char (point-max))
       (cond
        ((and (not (equal result 0))
@@ -354,22 +348,22 @@ and return the folder that was newly extracted."
 ;;;###autoload
 (defun dash-docs-async-install-docset-from-file (docset-tmp-path)
   "Asynchronously extract the content of DOCSET-TMP-PATH, move it to `dash-docs-docsets-path` and activate the docset."
-  (interactive (list (car (find-file-read-args "Docset Tarball: " t))))
-  (async-start
-   (lambda ()
-     ;; Beware! This lambda is run in it's own instance of emacs.
-     (dash-docs-extract-and-get-folder docset-tmp-path))
-   (lambda (docset-folder)
-     (dash-docs-activate-docset docset-folder)
-     (message (format
-               "Docset installed. Add \"%s\" to dash-docs-common-docsets or dash-docs-docsets."
-               docset-folder)))))
+  (interactive
+   (list (car (find-file-read-args "Docset Tarball: " t))))
+  ;; extract the archive contents
+  (let ((docset-folder (dash-docs-extract-and-get-folder docset-tmp-path)))
+    (dash-docs-activate-docset docset-folder)
+    (message (format
+              "Docset installed. Add \"%s\" to dash-docs-common-docsets or dash-docs-docsets."
+              docset-folder))))
 
+;;;###autoload
 (defalias 'dash-docs-update-docset 'dash-docs-install-docset)
 
 (defun dash-docs-docset-installed-p (docset)
   "Return non-nil if DOCSET is installed."
-  (member (replace-regexp-in-string "_" " " docset) (dash-docs-installed-docsets)))
+  (member (replace-regexp-in-string "_" " " docset)
+          (dash-docs-installed-docsets)))
 
 ;;;###autoload
 (defun dash-docs-ensure-docset-installed (docset)
