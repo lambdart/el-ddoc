@@ -91,3 +91,9 @@ GTAGS
 
 # Dirs
 .backup
+
+# .nosearch
+.nosearch
+
+# Generated autoloads
+*-autoloads.el
