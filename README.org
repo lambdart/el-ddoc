@@ -6,8 +6,8 @@
 
 * Dash-Docs
 
-  This package provides an =Elisp= interface to query and show
-  documentation using [[http://www.kapeli.com/dash][Dash]] docsets.
+  This package provides an =Elisp= interface to query
+  and show documentation using [[http://www.kapeli.com/dash][Dash]] docsets.
 
   It doesn't require =Dash= app, we rely on any
   =html= file browser, however =eww= is recommended!
@@ -51,7 +51,7 @@
    as explained [[https://kapeli.com/docsets#dashdocsetfeed][here]].
 
 * Usage
-** Interactive
+** Commands
 ** Library
 
    Search all currently enabled docsets -
@@ -103,60 +103,56 @@
    Different subsets of docsets can be activated depending on the
    buffer. For the moment (it may change in the future) we decided it's a
    plain local variable you should setup for every different
-   filetype. This way you can also do fancier things like project-wise
+   filetype.
+
+   This way you can also do fancier things like project-wise
    docsets sets.
 
    #+BEGIN_SRC emacs-lisp
 
-   (defun go-doc ()
+   (defun go-set-docset ()
      (interactive)
      (setq-local dash-docs-docsets '("Go")))
 
-   (add-hook 'go-mode-hook 'go-doc)
+   ;; add hook
+   (add-hook 'go-mode-hook 'go-set-docset)
 
    #+END_SRC
 
 * FAQ
 
-  - Does it work in OSX/Windows, any support soon?
-    Nope!
+  - Does it works in MacOS/Windows?
+    Duno, and I don't care.
+
+  - Does it works in Linux/BSDs?
+    YES!
 
   - I get nil for every search I do!
-    Make sure you don't have SQLite3 .mode column but .mode list (the
-    default). Check your ~.sqliterc~.
+    Make sure you don't have SQLite3 .mode column but .mode list
+    (the default). Check your ~.sqliterc~.
 
-  - When selecting an item in dash-docs, no browser lookup occurs
-    with =Firefox= and =Emacs= >= 24.4: \\
+  - When selecting an item in dash-docs, no browser
+    lookup occurs with =Firefox= and =Emacs= >= 24.4: \\
 
     Try: \\
 
     #+BEGIN_SRC emacs-lisp
     ;; customize function to display the current
     ;; buffer in a ww browser
-    (customize-set-variable
-     'browse-url-browser-function 'browse-url-generic)
+    (customize-set-variable 'browse-url-browser-function 'browse-url-generic)
 
     ;; customize the name of the browser program used
     ;; by `browse-url-generic'
-    (customize-set-variable
-     'browse-url-generic-program "/path/to/firefox")
+    (customize-set-variable 'browse-url-generic-program "/path/to/firefox")
 
     ;; customize default function to browse Dash’s docsets
-    (customize-set-variable
-     'dash-docs-browser-func 'browse-url-generic)
+    (customize-set-variable 'dash-docs-browser-func 'browse-url-generic)
     #+END_SRC
 
-* Contribution
+* References
 
-  We ♥ feedback, issues or pull requests. Feel free to contribute
-  in dash-docs. We're trying to add tests to the project,
-  if you send a PR please consider add new or
-  update the existing ones.
+  - https://github.com/dash-docs-el/dash-docs
 
-* Authors
-
-  - Toni Reina <areina0@gmail.com>
-  - Raimon Grau <raimonster@gmail.com>
 * EOF
 
   #+BEGIN_SRC
