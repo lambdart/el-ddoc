@@ -42,24 +42,12 @@
   :prefix "dash-docs-"
   :group 'applications)
 
-(defcustom dash-docs-docsets-path
+(defcustom dash-docs-docsets-dir
   (expand-file-name "docsets" user-emacs-directory)
-  "Default path for docsets.
+  "Default docsets directory.
 If you're setting this option manually, set it to an absolute
 path. You can use `expand-file-name' function for that."
   :set (lambda (opt val) (set opt (expand-file-name val)))
-  :type 'string
-  :group 'dash-docs)
-
-(defcustom dash-docs-docsets-feed-url
-  "https://raw.github.com/Kapeli/feeds/master"
-  "Feeds URL for dash docsets."
-  :type 'string
-  :group 'dash-docs)
-
-(defcustom dash-docs-docsets-url
-  "https://api.github.com/repos/Kapeli/feeds/contents"
-  "Official docsets URL."
   :type 'string
   :group 'dash-docs)
 
@@ -92,9 +80,17 @@ Available formats are
   :type 'string
   :group 'dash-docs)
 
-(defcustom dash-docs-json-cache-file
-  (expand-file-name "cache/kapeli.json" user-emacs-directory)
-  "Kapeli json cache file."
+(defcustom dash-docs-official-index
+  (expand-file-name "cache/dash-docs-official.json"
+                    user-emacs-directory)
+  "Official index file."
+  :type 'string
+  :group 'dash-docs)
+
+(defcustom dash-docs-user-index
+  (expand-file-name "cache/dash-docs-user.json"
+                    user-emacs-directory)
+  "Unofficial (user) index file."
   :type 'string
   :group 'dash-docs)
 
@@ -123,6 +119,14 @@ These docsets are not available to install."
   :type 'list
   :group 'dash-docs)
 
+(defvar dash-docs-docsets-url
+  "https://api.github.com/repos/Kapeli/feeds/contents"
+  "Official docsets URL.")
+
+(defvar dash-docs-docsets-feed-url
+  "https://raw.github.com/Kapeli/feeds/master"
+  "Feeds URL for dash docsets.")
+
 (defvar dash-docs-dash-sql-query
   "SELECT t.type, t.name, t.path FROM searchIndex t WHERE %s ORDER BY LENGTH(t.name), LOWER(t.name) LIMIT 1000"
   "DASH default sql query.")
@@ -135,7 +139,7 @@ These docsets are not available to install."
   "SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1"
   "Default type sqlite3 query.")
 
-(defvar dash-docs--common-docsets '()
+(defvar dash-docs-common-docsets '()
   "List of Docsets to search active by default.")
 
 (defvar dash-docs--connections nil
@@ -143,7 +147,7 @@ These docsets are not available to install."
 
 (defvar dash-docs--internal-vars
   '(dash-docs--connections
-    dash-docs--common-docsets)
+    dash-docs-common-docsets)
   "List of dash-docs internal variables.")
 
 (defvar dash-docs-message-prefix "[dash-docs]: "
@@ -177,36 +181,30 @@ Note: set this variable directly has no effect, use
   (dolist (var dash-docs--internal-vars)
     (set var nil)))
 
-(defun dash-docs--created-docsets-path (docset-path)
-  "Check if DOCSET-PATH directory exists."
-  (or (file-directory-p docset-path)
-      (and (y-or-n-p
-            (format "Directory %s does not exist. Want to create it?"
-                    docset-path))
-           (mkdir docset-path t))))
-
-(defun dash-docs-docsets-path ()
-  "Return the path where Dash's docsets are stored."
-  (expand-file-name dash-docs-docsets-path))
+(defun dash-docs--created-dir ()
+  "Create docsets default directory: `dash-docs-docsets-dir'."
+  (let* ((dir dash-docs-docsets-dir)
+         (prompt (format "Directory %s does not exist. Want to create it?"
+                        dir)))
+    (or (file-directory-p dir)
+        (and (y-or-n-p prompt))
+        (mkdir dir t))))
 
 (defun dash-docs-docset-path (docset)
-  "Return DOCSET directory path (full)."
-  (let* ((base (dash-docs-docsets-path))
-         (docdir (expand-file-name docset base)))
-    (cl-loop for dir in (list (format "%s/%s.docset" base docset)
-                              (format "%s/%s.docset" docdir docset)
-                              (when (file-directory-p docdir)
-                                (cl-first (directory-files
-                                           docdir t "\\.docset\\'"))))
-             when (and dir (file-directory-p dir))
-             return dir)))
+  "Return DOCSET (full) path."
+  (let* (;; docset partial path
+         (dir dash-docs-docsets-dir)
+         ;; docset path
+         (path (format "%s.docset" (expand-file-name docset dir))))
+    ;; verify if the path exists
+    (if (file-directory-p path) path nil)))
 
 (defun dash-docs-docset-db-path (docset)
   "Return database DOCSET path."
   (let ((path (dash-docs-docset-path docset)))
     ;; if not found, error
     (if (not path)
-        (error "Cannot find docset '%s'" docset)
+        (error "missing docset '%s', please install it first" docset)
       ;; else return expanded path
       (expand-file-name "Contents/Resources/docSet.dsidx" path))))
 
@@ -265,7 +263,8 @@ by whitespace and using like sql operator."
 A different query is returned depending on DOCSET-TYPE.
 PATTERN is used to compose the SQL WHERE clause."
   (let ((compose-select-query-func
-         (cdr (assoc (intern docset-type) dash-docs--sql-queries))))
+         (cdr (assoc (intern docset-type)
+                     dash-docs--sql-queries))))
     (when compose-select-query-func
       (funcall compose-select-query-func pattern))))
 
@@ -277,7 +276,7 @@ PATTERN is used to compose the SQL WHERE clause."
   "Return available connections."
   (let ((docsets (dash-docs-buffer-local-docsets)))
     ;; append local docsets with common ones
-    (setq docsets (append docsets dash-docs--common-docsets))
+    (setq docsets (append docsets dash-docs-common-docsets))
     ;; get unique 'connections' associated with the docsets
     (delq nil
           (mapcar (lambda (docset)
@@ -296,13 +295,13 @@ PATTERN is used to compose the SQL WHERE clause."
       (push connection dash-docs--connections))))
 
 ;;;###autoload
-(defun dash-docs-initialize-connections ()
-  "Initialize `dash-docs--connections'."
+(defun dash-docs-add-connections ()
+  "State default `dash-docs--connections' connections."
   (interactive)
-  (dolist (docset dash-docs--common-docsets)
+  (dolist (docset dash-docs-common-docsets)
     (dash-docs-add-connection docset)))
 
-(defun dash-docs-initialize-buffer-connections ()
+(defun dash-docs-local-connections ()
   "Create connections to sqlite docsets for buffer-local docsets."
   (dolist (docset (dash-docs-buffer-local-docsets))
     (dash-docs-add-connection docset)))
@@ -310,38 +309,59 @@ PATTERN is used to compose the SQL WHERE clause."
 (defun dash-docs-connections (pattern)
   "Return a list of dash-docs connections.
 
-If PATTERN starts with the name of a docset followed by a space, narrow the
-used connections to just that one.
+If PATTERN starts with the name of a docset
+followed by a space, narrow the used connections
+to just that one.
 
 We're looping on all connections, but it shouldn't
 be a problem as there won't be many."
 
   (let ((connections (dash-docs-get-connections)))
-    (or (cl-loop for conn in connections
+    (or (cl-loop for connection in connections
                  if (string-prefix-p
-                     (concat (downcase (car conn)) " ")
+                     (concat (downcase (car connection)) " ")
                      (downcase pattern))
-                 return (list conn))
+                 return (list connection))
         connections)))
 
-(defun dash-docs-write-json-file (json-contents)
-  "Write JSON-CONTENTS in the `dash-docs-kapeli-cache-file'."
-  ;; set file path
-  (let ((file-path dash-docs-json-cache-file))
-    ;; write buffer to file
-    (with-temp-file file-path
-      ;; insert json contents in the current buffer
-      (prin1 json-contents (current-buffer)))))
+(defun dash-docs--parse-index (elements)
+  "Parse json ELEMENTS."
+  (delq nil
+        (mapcar (lambda (element)
+                  (let* ((name (assoc-default 'name element))
+                         (ext (file-name-extension name)))
+                    (when (equal ext "xml")
+                      (list name))))
+                elements)))
 
-(defun dash-docs-read-json-from-url (url)
+(defun dash-docs--write-index (file json)
+  "Write JSON elements in the target FILE."
+  (let ((elements (dash-docs--parse-index json)))
+    ;; write buffer to file
+    (with-temp-file file
+      ;; insert json content in the current buffer
+      (prin1 elements (current-buffer)))))
+
+(defun dash-docs--read-index (file)
+  "Return json FILE contents."
+  (when (file-exists-p file)
+    (let ((content (with-temp-buffer
+                     (insert-file-contents file)
+                     (buffer-string))))
+      (read content))))
+
+(defun dash-docs-fetch-json (url)
   "Read and return a JSON object from URL."
   (let ((buffer (url-retrieve-synchronously
-                 url t t
-                 dash-docs-retrieve-url-timeout))
+                 url t t dash-docs-retrieve-url-timeout))
         (json-content nil))
     (cond
      ;; verify if buffer is non-nil
-     ((not buffer) (error "Was not possible to retrieve url."))
+     ((not buffer)
+      ;; debug message
+      (dash-docs--message "was not possible to retrieve json content")
+      ;; return nil
+      nil)
      ;; default, read json contents
      (t
       (setq json-content
@@ -350,26 +370,34 @@ be a problem as there won't be many."
     ;; return json content
     json-content))
 
+(defun dash-docs-fetch-official-index ()
+  "Fetch official docset's json index."
+  (when (not (file-exists-p dash-docs-official-index))
+    (let ((json (dash-docs-fetch-json dash-docs-docsets-url)))
+      ;; verify if we have any json contents
+      (if (not json) nil
+        ;; write json to the index file
+        (dash-docs--write-index dash-docs-official-index json)))))
+
 (defun dash-docs-unofficial-docsets ()
   "Return a list of lists with docsets contributed by users.
 The first element is the docset's name second the docset's archive url."
-  (let ((docsets (dash-docs-read-json-from-url dash-docs-unofficial-url)))
+  (let ((docsets (dash-docs--read-index dash-docs-user-index)))
+    ;; parse docsets list
     (mapcar (lambda (docset)
-              (list (assoc-default 'name docset)
-                    (assoc-default 'archive docset)))
+              (list (assoc 'name docset)
+                    (assoc 'archive docset)))
             docsets)))
 
 (defun dash-docs-official-docsets ()
   "Return a list of official docsets."
-  (let ((docsets (dash-docs-read-json-from-url dash-docs-docsets-url)))
-    (delq nil (mapcar
-               (lambda (docset)
-                 (let ((name (assoc-default 'name docset)))
-                   (if (and (equal (file-name-extension name) "xml")
-                            (not (member (file-name-sans-extension name)
-                                         dash-docs-ignored-docsets)))
-                       (file-name-sans-extension name))))
-               docsets))))
+  (let ((index (dash-docs--read-index dash-docs-official-index))
+        (docsets nil))
+    ;; for each docset in index clean the ".xml" substring
+    (dolist (docset index)
+      (push (string-replace ".xml" "" (car docset)) docsets))
+    ;; return docsets
+    docsets))
 
 (defun dash-docs--install-docset (url docset-name)
   "Download a docset from URL and install with name DOCSET-NAME."
@@ -385,17 +413,17 @@ The first element is the docset's name second the docset's archive url."
 
 (defun dash-docs-installed-docsets ()
   "Return a list of installed docsets."
-  (let ((docset-path (dash-docs-docsets-path)))
-    (cl-loop for dir in (directory-files docset-path nil "^[^.]")
-             for full-path = (expand-file-name dir docset-path)
-             for subdir = (and (file-directory-p full-path)
-                               (cl-first (directory-files full-path
-                                                          t "\\.docset\\'")))
-             when (or (string-match-p "\\.docset\\'" dir)
-                      (file-directory-p (expand-file-name
-                                         (format "%s.docset" dir) full-path))
-                      (and subdir (file-directory-p subdir)))
-             collecting (replace-regexp-in-string "\\.docset\\'" "" dir))))
+  ;; auxiliary variables
+  (let (docsets docset)
+    ;; get directories (docsets)
+    (dolist (dir (directory-files dash-docs-docsets-dir nil "^[^.]"))
+      ;; set docset formatted string
+      (setq docset (replace-regexp-in-string "\\.docset\\'" "" dir))
+      ;; if string was formatted add to docsets collection
+      (when (not (equal docset dir))
+        (push docset docsets)))
+    ;; return docsets
+    docsets))
 
 (defun dash-docs-extract-and-get-folder (docset-temp-path)
   "Extract DOCSET-TEMP-PATH to DASH-DOCS-DOCSETS-PATH,
@@ -404,7 +432,7 @@ and return the folder that was newly extracted."
     (let* ((call-process-args (list "tar" nil t nil))
            (process-args (list
                           "xfv" docset-temp-path
-                          "-C" (dash-docs-docsets-path)))
+                          "-C" dash-docs-docsets-dir))
            (result (apply #'call-process
                           (append call-process-args process-args nil)))
            (path-string nil))
@@ -415,11 +443,11 @@ and return the folder that was newly extracted."
              ;; TODO: Adjust to proper text. Also requires correct locale.
              (search-backward "too long" nil t))
         (error "Failed extract %s to %s."
-               docset-temp-path (dash-docs-docsets-path)))
+               docset-temp-path dash-docs-docsets-dir))
        ;; verify call process error
        ((not (equal result 0))
         (error "Error %s, failed to extract %s to %s."
-               result docset-temp-path (dash-docs-docsets-path))))
+               result docset-temp-path dash-docs-docsets-dir)))
       (goto-char (point-max))
       ;; set path string
       (setq path-string (car (split-string (thing-at-point 'line) "\\." t)))
@@ -515,7 +543,7 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
   "Open debugging buffer and insert a header message."
   (with-current-buffer (dash-docs--debug-buffer)
     (erase-buffer)
-    (insert ";; Dash-docs sqlite3 error logging.\n")))
+    (insert ";; dash-docs error logging:\n\n")))
 
 (defun dash-docs-search-docset (connection pattern)
   "Search PATTERN in CONNECTION, return a list of formatted rows."
@@ -539,25 +567,6 @@ Report an error unless a valid docset is selected."
                      choices nil t nil nil choices)))
 
 ;;;###autoload
-(defun dash-docs-find-file ()
-  "Find dash documentation file."
-  (interactive)
-  ;; verify if common docsets were set
-  (when (not (> (length dash-docs--common-docsets) 0))
-    (call-interactively 'dash-docs-activate-docset))
-  ;; initialize connections (if necessary)
-  (dash-docs-initialize-connections)
-  ;; map candidates
-  (let* ((candidates (dash-docs-pattern-candidates))
-         (candidate (completing-read "Docs: " candidates nil t)))
-    (if (equal candidate "")
-        (dash-docs--message "error, please provide a search string"))
-    ;; update the candidate
-    (setq candidate (cdr (assoc candidate candidates)))
-    ;; browse url a.k.a find file
-    (dash-docs-browse-url candidate)))
-
-;;;###autoload
 (defun dash-docs-clean-all-connections ()
   "Clean `dash-docs--connections' interactively."
   (interactive)
@@ -565,43 +574,13 @@ Report an error unless a valid docset is selected."
   (setq dash-docs--connections nil))
 
 ;;;###autoload
-(defun dash-docs-activate-docset (docset)
-  "Activate a DOCSET, i.e, make a connection to its database.
-If called interactively prompts for the docset name."
-  ;; maps docset parameter
-  (interactive
-   (list
-    (dash-docs-minibuffer-read "Activate docset"
-                               (dash-docs-installed-docsets))))
-  ;; add docset to docsets list
-  (push docset dash-docs--common-docsets))
-
-;;;###autoload
-(defun dash-docs-deactivate-docset (docset)
-  "Deactivate DOCSET, i.e, update common docsets.
-If called interactively prompts for the docset name."
-  ;; maps docset parameter
-  (interactive
-   (list
-    (dash-docs-minibuffer-read "Deactivate docset"
-                               dash-docs--common-docsets)))
-  ;; delete docset from common docsets
-  (setq dash-docs--common-docsets
-        (delete docset dash-docs--common-docsets)))
-
-;;;###autoload
 (defun dash-docs-install-user-docset (docset-name)
   "Download an unofficial docset with specified DOCSET-NAME."
   ;; maps docset name parameter
   (interactive
-   (list
-    (dash-docs-minibuffer-read
-     "Install docset"
-     (mapcar 'car
-             (dash-docs-unofficial-docsets)))))
-  ;; create docsets path
-  (when (dash-docs--created-docsets-path
-         (dash-docs-docsets-path)))
+   (list (dash-docs-minibuffer-read
+          "Install docset"
+          (mapcar 'car (dash-docs-unofficial-docsets)))))
   ;; install docset
   (let ((url (car (assoc-default docset-name
                                  (dash-docs-unofficial-docsets)))))
@@ -610,7 +589,7 @@ If called interactively prompts for the docset name."
 ;;;###autoload
 (defun dash-docs-install-docset-from-file (docset-tmp-path)
   "Extract the content of DOCSET-TMP-PATH.
-Move it to `dash-docs-docsets-path' and activate the docset."
+Move it to `dash-docs-docsets-dir' and activate the docset."
   ;; maps docset temporary path parameter
   (interactive
    (list (car (find-file-read-args "Docset Tarball: " t))))
@@ -631,8 +610,6 @@ Move its stuff to docsets-path."
    (list (dash-docs-minibuffer-read
           "Install docset"
           (dash-docs-official-docsets))))
-  ;; create docsets if necessary
-  (when (dash-docs--created-docsets-path (dash-docs-docsets-path)))
   ;; format url, download docset file (url-copy-file)
   ;; and move it to the right location (docset paths)
   (let ((feed-url (format "%s/%s.xml"
@@ -652,7 +629,7 @@ Move its stuff to docsets-path."
 ;;;###autoload
 (defun dash-docs-async-install-docset-from-file (docset-tmp-path)
   "Asynchronously extract the content of DOCSET-TMP-PATH.
-Move it to `dash-docs-docsets-path` and activate the docset."
+Move it to `dash-docs-docsets-dir` and activate the docset."
   ;; maps docset temporary path parameter
   (interactive
    (list (car (find-file-read-args "Docset Tarball: " t))))
@@ -662,6 +639,50 @@ Move it to `dash-docs-docsets-path` and activate the docset."
     (message (format
               "Docset installed. Add \"%s\" to dash-docs-common-docsets."
               docset-folder))))
+
+;;;###autoload
+(defun dash-docs-activate-docset (docset)
+  "Activate a DOCSET, i.e, make a connection to its database.
+If called interactively prompts for the docset name."
+  ;; maps docset parameter
+  (interactive
+   (list
+    (dash-docs-minibuffer-read "Activate docset"
+                               (dash-docs-installed-docsets))))
+  ;; add docset to docsets list
+  (push docset dash-docs-common-docsets)
+  ;; start connection
+  (dash-docs-add-connection docset))
+
+;;;###autoload
+(defun dash-docs-deactivate-docset (docset)
+  "Deactivate DOCSET, i.e, update common docsets.
+If called interactively prompts for the docset name."
+  ;; maps docset parameter
+  (interactive
+   (list
+    (dash-docs-minibuffer-read "Deactivate docset"
+                               dash-docs-common-docsets)))
+  ;; delete docset from common docsets
+  (setq dash-docs-common-docsets
+        (delete docset dash-docs-common-docsets)))
+
+;;;###autoload
+(defun dash-docs-find-file ()
+  "Find dash documentation file."
+  (interactive)
+  ;; verify if common docsets were set
+  (when (not (> (length dash-docs-common-docsets) 0))
+    (call-interactively 'dash-docs-activate-docset))
+  ;; map candidates
+  (let* ((candidates (dash-docs-pattern-candidates))
+         (candidate (completing-read "Docs: " candidates nil t)))
+    (if (equal candidate "")
+        (dash-docs--message "error, please provide a search string"))
+    ;; update the candidate
+    (setq candidate (cdr (assoc candidate candidates)))
+    ;; browse url a.k.a find file
+    (dash-docs-browse-url candidate)))
 
 ;;;###autoload
 (defun dash-docs-show-mode-state ()
@@ -686,8 +707,12 @@ and disables it otherwise."
   ;; :lighter dash-docs-minor-mode-string
   (cond
    (dash-docs-mode
-    ;; initialize common connections list
-    (dash-docs-initialize-connections)
+    ;; create docsets default directory (if necessary)
+    (dash-docs--created-dir)
+    ;; fetch official index file (if necessary)
+    (dash-docs-fetch-official-index)
+    ;; start common connections list
+    (dash-docs-add-connections)
     ;; set dash docs mode indicator to true
     (setq dash-docs-mode t))
    (t
