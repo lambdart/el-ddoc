@@ -27,8 +27,11 @@
 ;;
 ;;; Code:
 
-(require 'url)
 (require 'xml)
+(require 'url)
+(require 'url-http)
+(require 'mm-decode)
+
 (require 'json)
 (require 'cl-lib)
 (require 'thingatpt)
@@ -185,17 +188,17 @@ Note: set this variable directly has no effect, use
   "Create docsets default directory: `dash-docs-docsets-dir'."
   (let* ((dir dash-docs-docsets-dir)
          (prompt (format "Directory %s does not exist. Want to create it?"
-                        dir)))
+                         dir)))
     (or (file-directory-p dir)
         (and (y-or-n-p prompt))
         (mkdir dir t))))
 
 (defun dash-docs-docset-path (docset)
   "Return DOCSET (full) path."
-  (let* (;; docset partial path
-         (dir dash-docs-docsets-dir)
-         ;; docset path
-         (path (format "%s.docset" (expand-file-name docset dir))))
+  (let* (;; set directory
+         (dir (expand-file-name dash-docs-docsets-dir))
+         ;; format docset path
+         (path (format "%s/%s.docset" dir docset)))
     ;; verify if the path exists
     (if (file-directory-p path) path nil)))
 
@@ -399,17 +402,61 @@ The first element is the docset's name second the docset's archive url."
     ;; return docsets
     docsets))
 
+(defun dash-docs-extract-docset (docset-temp-file)
+  "Extract DOCSET-TEMP-FILE to `dash-docs-docsets-dir'.
+Return the folder that was newly extracted."
+  (with-temp-buffer
+    (let* ((program (list "tar" nil t nil))
+           (args (list "xfv" docset-temp-file "-C" dash-docs-docsets-dir))
+           (result (apply #'call-process (append program args nil)))
+           (folder nil))
+      (cond
+       ;; too long?
+       ((and (not (equal result 0))
+             ;; TODO: Adjust to proper text. Also requires correct locale.
+             (search-backward "too long" nil t))
+        ;; signals an error message
+        (error "Failed extract %s to %s."
+               docset-temp-file
+               dash-docs-docsets-dir))
+       ;; verify call-process result
+       ((not (equal result 0))
+        ;; signals an error message
+        (error "Error %s, failed to extract %s to %s."
+               result
+               docset-temp-file
+               dash-docs-docsets-dir)))
+      ;; got the point
+      (goto-char (point-max))
+      ;; set path string
+      (setq folder (car (split-string (thing-at-point 'line) "\\." t)))
+      ;; format the folder and return it (string)
+      (replace-regexp-in-string "^x " "" folder))))
+
 (defun dash-docs--install-docset (url docset-name)
   "Download a docset from URL and install with name DOCSET-NAME."
   ;; set docset temporary path
-  (let ((docset-tmp-path
+  (let ((docset-temp-file
          (format "%s%s-docset.tgz"
                  temporary-file-directory
-                 docset-name)))
-    ;; copy file to the right location
-    (url-copy-file url docset-tmp-path t)
-    ;; install docset from file
-    (dash-docs-install-docset-from-file docset-tmp-path)))
+                 docset-name))
+         ;;  update (parse) generic url
+         (url (url-generic-parse-url url)))
+    ;; http request
+    (url-http url
+              (lambda (&rest args)
+                ;; download the file
+                (let* ((file (car args))
+                       (buffer (current-buffer))
+                       (handle (with-current-buffer buffer
+                                (mm-dissect-buffer t))))
+                  (let ((mm-attachment-file-modes (default-file-modes)))
+                    (mm-save-part-to-file handle file))
+                  (mm-destroy-parts handle)
+                ;; extract docset
+                (dash-docs-extract-docset file)))
+              ;; docset temporary archive
+              (list docset-temp-file))))
 
 (defun dash-docs-installed-docsets ()
   "Return a list of installed docsets."
@@ -425,35 +472,6 @@ The first element is the docset's name second the docset's archive url."
     ;; return docsets
     docsets))
 
-(defun dash-docs-extract-and-get-folder (docset-temp-path)
-  "Extract DOCSET-TEMP-PATH to DASH-DOCS-DOCSETS-PATH,
-and return the folder that was newly extracted."
-  (with-temp-buffer
-    (let* ((call-process-args (list "tar" nil t nil))
-           (process-args (list
-                          "xfv" docset-temp-path
-                          "-C" dash-docs-docsets-dir))
-           (result (apply #'call-process
-                          (append call-process-args process-args nil)))
-           (path-string nil))
-      (goto-char (point-max))
-      (cond
-       ;; too long?
-       ((and (not (equal result 0))
-             ;; TODO: Adjust to proper text. Also requires correct locale.
-             (search-backward "too long" nil t))
-        (error "Failed extract %s to %s."
-               docset-temp-path dash-docs-docsets-dir))
-       ;; verify call process error
-       ((not (equal result 0))
-        (error "Error %s, failed to extract %s to %s."
-               result docset-temp-path dash-docs-docsets-dir)))
-      (goto-char (point-max))
-      ;; set path string
-      (setq path-string (car (split-string (thing-at-point 'line) "\\." t)))
-      ;; format and return the folder
-      (replace-regexp-in-string "^x " "" path-string))))
-
 (defun dash-docs-docset-installed-p (docset)
   "Return non-nil if DOCSET is installed."
   (member (replace-regexp-in-string "_" " " docset)
@@ -464,7 +482,7 @@ and return the folder that was newly extracted."
   (unless (dash-docs-docset-installed-p docset)
     (dash-docs-install-docset docset)))
 
-(defun dash-docs-get-docset-url (feed-path)
+(defun dash-docs-parse-archive-url (feed-path)
   "Parse a xml feed with docset urls and return the first url.
 The Argument FEED-PATH should be a string with the path of the xml file."
   (let* ((xml (xml-parse-file feed-path))
@@ -594,12 +612,10 @@ Move it to `dash-docs-docsets-dir' and activate the docset."
   (interactive
    (list (car (find-file-read-args "Docset Tarball: " t))))
   ;; get docset folder
-  (let ((docset-folder
-         (dash-docs-extract-and-get-folder docset-tmp-path)))
-    ;; activate docset folder
-    (dash-docs-activate-docset docset-folder)
+  (let ((folder
+         (dash-docs-extract-docset docset-tmp-path)))
     ;; debug message
-    (dash-docs--message "docset installed.")))
+    (dash-docs--message "docset installed at %s" folder)))
 
 ;;;###autoload
 (defun dash-docs-install-docset (docset-name)
@@ -622,7 +638,9 @@ Move its stuff to docsets-path."
     ;; copy url file
     (url-copy-file feed-url feed-tmp-path t)
     ;; update url
-    (setq url (dash-docs-get-docset-url feed-tmp-path))
+    (setq url (dash-docs-parse-archive-url feed-tmp-path))
+    ;; show me
+    (princ url)
     ;; install docset
     (dash-docs--install-docset url docset-name)))
 
@@ -634,7 +652,7 @@ Move it to `dash-docs-docsets-dir` and activate the docset."
   (interactive
    (list (car (find-file-read-args "Docset Tarball: " t))))
   ;; extract the archive contents
-  (let ((docset-folder (dash-docs-extract-and-get-folder docset-tmp-path)))
+  (let ((docset-folder (dash-docs-extract-docset docset-tmp-path)))
     (dash-docs-activate-docset docset-folder)
     (message (format
               "Docset installed. Add \"%s\" to dash-docs-common-docsets."
