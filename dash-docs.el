@@ -275,7 +275,7 @@ PATTERN is used to compose the SQL WHERE clause."
   "Get the docsets configured for the current buffer."
   (or (and (boundp 'dash-docs-docsets) dash-docs-docsets) '()))
 
-(defun dash-docs-get-connections ()
+(defun dash-docs-available-connections ()
   "Return available connections."
   (let ((docsets (dash-docs-buffer-local-docsets)))
     ;; append local docsets with common ones
@@ -287,7 +287,7 @@ PATTERN is used to compose the SQL WHERE clause."
                   docsets))))
 
 (defun dash-docs-add-connection (docset)
-  "Add DOCSET to `dash-docs--connections'."
+  "Add DOCSET connection to `dash-docs--connections'."
   ;; verify if docset is already present
   (when (not (assoc docset dash-docs--connections))
     ;; connection parameters
@@ -297,15 +297,8 @@ PATTERN is used to compose the SQL WHERE clause."
       ;; add connection to dash-docs--connections
       (push connection dash-docs--connections))))
 
-;;;###autoload
-(defun dash-docs-add-connections ()
-  "State default `dash-docs--connections' connections."
-  (interactive)
-  (dolist (docset dash-docs-common-docsets)
-    (dash-docs-add-connection docset)))
-
-(defun dash-docs-local-connections ()
-  "Create connections to sqlite docsets for buffer-local docsets."
+(defun dash-docs-add-buffer-local-connections ()
+  "Add dash-docs buffer local connections."
   (dolist (docset (dash-docs-buffer-local-docsets))
     (dash-docs-add-connection docset)))
 
@@ -314,12 +307,9 @@ PATTERN is used to compose the SQL WHERE clause."
 
 If PATTERN starts with the name of a docset
 followed by a space, narrow the used connections
-to just that one.
+to just that one."
 
-We're looping on all connections, but it shouldn't
-be a problem as there won't be many."
-
-  (let ((connections (dash-docs-get-connections)))
+  (let ((connections (dash-docs-available-connections)))
     (or (cl-loop for connection in connections
                  if (string-prefix-p
                      (concat (downcase (car connection)) " ")
@@ -342,7 +332,7 @@ be a problem as there won't be many."
   (let ((elements (dash-docs--parse-index json)))
     ;; write buffer to file
     (with-temp-file file
-      ;; insert json content in the current buffer
+      ;; insert json content in the file buffer (implicit)
       (prin1 elements (current-buffer)))))
 
 (defun dash-docs--read-index (file)
@@ -440,21 +430,25 @@ Return the folder that was newly extracted."
          (format "%s%s-docset.tgz"
                  temporary-file-directory
                  docset-name))
-         ;;  update (parse) generic url
-         (url (url-generic-parse-url url)))
-    ;; http request
+        ;;  update (parse) generic url
+        (url (url-generic-parse-url url)))
+    ;; http request (async version of url-copy-file)
     (url-http url
               (lambda (&rest args)
                 ;; download the file
                 (let* ((file (car args))
                        (buffer (current-buffer))
                        (handle (with-current-buffer buffer
-                                (mm-dissect-buffer t))))
+                                 (mm-dissect-buffer t))))
+                  ;; return the default file protection for created files
                   (let ((mm-attachment-file-modes (default-file-modes)))
                     (mm-save-part-to-file handle file))
+                  ;; necessary?
+                  (kill-buffer buffer)
+                  ;; destroy MIME parts
                   (mm-destroy-parts handle)
-                ;; extract docset
-                (dash-docs-extract-docset file)))
+                  ;; extract docset
+                  (dash-docs-extract-docset file)))
               ;; docset temporary archive
               (list docset-temp-file))))
 
@@ -482,12 +476,12 @@ Return the folder that was newly extracted."
   (unless (dash-docs-docset-installed-p docset)
     (dash-docs-install-docset docset)))
 
-(defun dash-docs-parse-archive-url (feed-path)
-  "Parse a xml feed with docset urls and return the first url.
-The Argument FEED-PATH should be a string with the path of the xml file."
-  (let* ((xml (xml-parse-file feed-path))
+(defun dash-docs-parse-archive-url (xlm-file)
+  "Parse the XML-FILE feed and return the first url."
+  (let* ((xml (xml-parse-file xlm-file))
          (urls (car xml))
          (url (xml-get-children urls 'url)))
+    ;; return first url
     (cl-caddr (cl-first url))))
 
 (defun dash-docs-sub-docset-name-in-pattern (pattern docset-name)
@@ -530,8 +524,10 @@ Ex:
 
 (defun dash-docs-parse-url (docset-name filename &optional anchor)
   "Return the full, absolute URL to documentation.
+
 Either a file:/// URL joining DOCSET-NAME, FILENAME & ANCHOR
 or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
+
   (let* ((filename (replace-regexp-in-string "<dash_entry_.*>" "" filename))
          (path (format "%s%s" filename
                        (if anchor (format "#%s" anchor) ""))))
@@ -550,6 +546,7 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
   (let ((name (car candidate))
         (file (nth 2 (cadr candidate)))
         (anchor (nth 3 (cadr candidate))))
+    ;; open url (possible file) using the chosen browser
     (funcall dash-docs-browser-func
              (dash-docs-parse-url name file anchor))))
 
@@ -563,19 +560,19 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
     (erase-buffer)
     (insert ";; dash-docs error logging:\n\n")))
 
-(defun dash-docs-search-docset (connection pattern)
+(defun dash-docs-search-entry (connection pattern)
   "Search PATTERN in CONNECTION, return a list of formatted rows."
   (cl-loop for row in (dash-docs-sql-search connection pattern)
            collect (dash-docs--format-row connection row)))
 
-(defun dash-docs-search-all-docsets (pattern)
+(defun dash-docs-search-entries (pattern)
   "Search a PATTERN in all available connected docsets."
   (cl-loop for connection in (dash-docs-connections pattern)
-           appending (dash-docs-search-docset connection pattern)))
+           appending (dash-docs-search-entry connection pattern)))
 
-(defun dash-docs-pattern-candidates ()
-  "Provide docsets candidates."
-  (dash-docs-search-all-docsets ""))
+(defun dash-docs-docsets-entry-candidates ()
+  "Return all available connected docsets entry candidates."
+  (dash-docs-search-entries ""))
 
 (defun dash-docs-minibuffer-read (prompt choices)
   "Read from the `minibuffer' using PROMPT and CHOICES as candidates.
@@ -585,14 +582,21 @@ Report an error unless a valid docset is selected."
                      choices nil t nil nil choices)))
 
 ;;;###autoload
-(defun dash-docs-clean-all-connections ()
-  "Clean `dash-docs--connections' interactively."
+(defun dash-docs-add-connections ()
+  "State default `dash-docs--connections' connections."
+  (interactive)
+  (dolist (docset dash-docs-common-docsets)
+    (dash-docs-add-connection docset)))
+
+;;;###autoload
+(defun dash-docs-clean-connections ()
+  "Remove (clean `dash-docs--connections') interactively."
   (interactive)
   ;; set internal var to nil
   (setq dash-docs--connections nil))
 
 ;;;###autoload
-(defun dash-docs-install-user-docset (docset-name)
+(defun dash-docs-install-unofficial-docset (docset-name)
   "Download an unofficial docset with specified DOCSET-NAME."
   ;; maps docset name parameter
   (interactive
@@ -605,15 +609,14 @@ Report an error unless a valid docset is selected."
     (dash-docs--install-docset url docset-name)))
 
 ;;;###autoload
-(defun dash-docs-install-docset-from-file (docset-tmp-path)
-  "Extract the content of DOCSET-TMP-PATH.
+(defun dash-docs-install-docset-from-file (docset-temp-file)
+  "Extract the content of DOCSET-TEMP-FILE.
 Move it to `dash-docs-docsets-dir' and activate the docset."
   ;; maps docset temporary path parameter
   (interactive
    (list (car (find-file-read-args "Docset Tarball: " t))))
-  ;; get docset folder
-  (let ((folder
-         (dash-docs-extract-docset docset-tmp-path)))
+  ;; extract the docset
+  (let ((folder (dash-docs-extract-docset docset-temp-file)))
     ;; debug message
     (dash-docs--message "docset installed at %s" folder)))
 
@@ -639,24 +642,8 @@ Move its stuff to docsets-path."
     (url-copy-file feed-url feed-tmp-path t)
     ;; update url
     (setq url (dash-docs-parse-archive-url feed-tmp-path))
-    ;; show me
-    (princ url)
     ;; install docset
     (dash-docs--install-docset url docset-name)))
-
-;;;###autoload
-(defun dash-docs-async-install-docset-from-file (docset-tmp-path)
-  "Asynchronously extract the content of DOCSET-TMP-PATH.
-Move it to `dash-docs-docsets-dir` and activate the docset."
-  ;; maps docset temporary path parameter
-  (interactive
-   (list (car (find-file-read-args "Docset Tarball: " t))))
-  ;; extract the archive contents
-  (let ((docset-folder (dash-docs-extract-docset docset-tmp-path)))
-    (dash-docs-activate-docset docset-folder)
-    (message (format
-              "Docset installed. Add \"%s\" to dash-docs-common-docsets."
-              docset-folder))))
 
 ;;;###autoload
 (defun dash-docs-activate-docset (docset)
@@ -693,7 +680,7 @@ If called interactively prompts for the docset name."
   (when (not (> (length dash-docs-common-docsets) 0))
     (call-interactively 'dash-docs-activate-docset))
   ;; map candidates
-  (let* ((candidates (dash-docs-pattern-candidates))
+  (let* ((candidates (dash-docs-docsets-entry-candidates))
          (candidate (completing-read "Docs: " candidates nil t)))
     (if (equal candidate "")
         (dash-docs--message "error, please provide a search string"))
@@ -729,7 +716,9 @@ and disables it otherwise."
     (dash-docs--created-dir)
     ;; fetch official index file (if necessary)
     (dash-docs-fetch-official-index)
-    ;; start common connections list
+    ;; fetch unofficial (user) index file (if necessary)
+    ;; (dash-docs-fetch-unofficial-index)
+    ;; start common connections
     (dash-docs-add-connections)
     ;; set dash docs mode indicator to true
     (setq dash-docs-mode t))
