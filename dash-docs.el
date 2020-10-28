@@ -392,7 +392,7 @@ The first element is the docset's name second the docset's archive url."
     ;; return docsets
     docsets))
 
-(defun dash-docs-extract-docset (docset-temp-file)
+(defun dash-docs-extract-archive (docset-temp-file)
   "Extract DOCSET-TEMP-FILE to `dash-docs-docsets-dir'.
 Return the folder that was newly extracted."
   (with-temp-buffer
@@ -423,34 +423,41 @@ Return the folder that was newly extracted."
       ;; format the folder and return it (string)
       (replace-regexp-in-string "^x " "" folder))))
 
+(defun dash-docs--fetch-extract-archive (url temp-file)
+  "Fetch URL and extract the retrieved docset TEMP-FILE archive."
+  ;; http request (async version of url-copy-file)
+  (url-http url
+            (lambda (&rest args)
+              ;; download the file
+              (let* ((temp-file (car args))
+                     (buffer (current-buffer))
+                     (handle (with-current-buffer buffer
+                               (mm-dissect-buffer t))))
+                ;; return the default file protection for created files
+                (let ((mm-attachment-file-modes (default-file-modes)))
+                  (mm-save-part-to-file handle temp-file))
+                ;; necessary?
+                (kill-buffer buffer)
+                ;; destroy MIME parts
+                (mm-destroy-parts handle)
+                ;; extract docset
+                (dash-docs-extract-archive temp-file)))
+            ;; temporary file archive
+            (list temp-file)))
+
+;; (defun dash-docs-fetch-xlm (&rest args))
+
 (defun dash-docs--install-docset (url docset-name)
   "Download a docset from URL and install with name DOCSET-NAME."
   ;; set docset temporary path
-  (let ((docset-temp-file
+  (let ((temp-file
          (format "%s%s-docset.tgz"
                  temporary-file-directory
                  docset-name))
         ;;  update (parse) generic url
         (url (url-generic-parse-url url)))
-    ;; http request (async version of url-copy-file)
-    (url-http url
-              (lambda (&rest args)
-                ;; download the file
-                (let* ((file (car args))
-                       (buffer (current-buffer))
-                       (handle (with-current-buffer buffer
-                                 (mm-dissect-buffer t))))
-                  ;; return the default file protection for created files
-                  (let ((mm-attachment-file-modes (default-file-modes)))
-                    (mm-save-part-to-file handle file))
-                  ;; necessary?
-                  (kill-buffer buffer)
-                  ;; destroy MIME parts
-                  (mm-destroy-parts handle)
-                  ;; extract docset
-                  (dash-docs-extract-docset file)))
-              ;; docset temporary archive
-              (list docset-temp-file))))
+    ;; fetch and extract the temporary archive
+    (dash-docs--fetch-extract-archive url temp-file)))
 
 (defun dash-docs-installed-docsets ()
   "Return a list of installed docsets."
@@ -614,9 +621,9 @@ Report an error unless a valid docset is selected."
 Move it to `dash-docs-docsets-dir' and activate the docset."
   ;; maps docset temporary path parameter
   (interactive
-   (list (car (find-file-read-args "Docset Tarball: " t))))
+   (list (car (find-file-read-args "Docset Archive: " t))))
   ;; extract the docset
-  (let ((folder (dash-docs-extract-docset docset-temp-file)))
+  (let ((folder (dash-docs-extract-archive docset-temp-file)))
     ;; debug message
     (dash-docs--message "docset installed at %s" folder)))
 
