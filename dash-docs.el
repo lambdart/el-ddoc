@@ -83,20 +83,6 @@ Available formats are
   :type 'string
   :group 'dash-docs)
 
-(defcustom dash-docs-official-index
-  (expand-file-name "cache/dash-docs-official.json"
-                    user-emacs-directory)
-  "Official index file."
-  :type 'string
-  :group 'dash-docs)
-
-(defcustom dash-docs-user-index
-  (expand-file-name "cache/dash-docs-user.json"
-                    user-emacs-directory)
-  "Unofficial (user) index file."
-  :type 'string
-  :group 'dash-docs)
-
 (defcustom dash-docs-debug-buffer "dash-docs-errors"
   "Debugging buffer name."
   :type 'string
@@ -120,6 +106,18 @@ Suggested values are:
   "Return a list of ignored docsets.
 These docsets are not available to install."
   :type 'list
+  :group 'dash-docs)
+
+(defcustom dash-docs-index-file
+  (expand-file-name "cache/dash-docs.index" user-emacs-directory)
+  "Official (cache) index file."
+  :type 'string
+  :group 'dash-docs)
+
+(defcustom dash-docs-user-index-file
+  (expand-file-name "cache/dash-docs-user.index" user-emacs-directory)
+  "Unofficial (user cache) index file."
+  :type 'string
   :group 'dash-docs)
 
 (defvar dash-docs-docsets-url
@@ -160,6 +158,10 @@ These docsets are not available to install."
   "Non-nil means that `dash-docs-mode' is enabled.
 Note: set this variable directly has no effect, use
 `turn-on-dash-doc-mode' stead.")
+
+(defvar dash-docs-json-cache-file
+  (expand-file-name "cache/dash-docs-official.json" user-emacs-directory)
+  "Official json cache file.")
 
 (defmacro dash-docs--message (fmt &rest args)
   "Just an internal `message' helper."
@@ -317,65 +319,70 @@ to just that one."
                  return (list connection))
         connections)))
 
-(defun dash-docs--parse-index (elements)
-  "Parse json ELEMENTS."
+(defun dash-docs--write-file (contents file)
+  "Write CONTENTS in the target FILE."
+  (with-temp-file file
+    ;; insert file contents in the file buffer (implicit)
+    (prin1 contents (current-buffer))))
+
+(defun dash-docs--read-file (file)
+  "Return FILE contents."
+  (when (file-exists-p file)
+    (let ((contents (with-temp-buffer
+                      (insert-file-contents file)
+                      (buffer-substring-no-properties (point-min)
+                                                      (point-max)))))
+      (read contents))))
+
+(defun dash-docs-fetch-json (url file)
+  "Copy JSON contents to FILE from the target URL."
+  (let ((json-contents nil))
+    ;; copy url json to cache file
+    (url-copy-file url file t nil)
+    ;; switch/case equivalent
+    (cond
+     ;; verify if file exists
+     ((not (file-exists-p file))
+      ;; debug message
+      (dash-docs--message "was not possible to retrieve json file")
+      ;; return nil
+      nil)
+     ;; default, read json contents
+     (t
+      (setq json-contents
+            (with-temp-buffer
+              (insert-file-contents-literally file)
+              (json-read)))))
+    ;; return json content
+    json-contents))
+
+(defun dash-docs--parse-index (json)
+  "Parse index JSON elements."
   (delq nil
         (mapcar (lambda (element)
                   (let* ((name (assoc-default 'name element))
                          (ext (file-name-extension name)))
                     (when (equal ext "xml")
                       (list name))))
-                elements)))
+                json)))
 
-(defun dash-docs--write-index (file json)
-  "Write JSON elements in the target FILE."
-  (let ((elements (dash-docs--parse-index json)))
-    ;; write buffer to file
-    (with-temp-file file
-      ;; insert json content in the file buffer (implicit)
-      (prin1 elements (current-buffer)))))
-
-(defun dash-docs--read-index (file)
-  "Return json FILE contents."
-  (when (file-exists-p file)
-    (let ((content (with-temp-buffer
-                     (insert-file-contents file)
-                     (buffer-string))))
-      (read content))))
-
-(defun dash-docs-fetch-json (url)
-  "Read and return a JSON object from URL."
-  (let ((buffer (url-retrieve-synchronously
-                 url t t dash-docs-retrieve-url-timeout))
-        (json-content nil))
-    (cond
-     ;; verify if buffer is non-nil
-     ((not buffer)
-      ;; debug message
-      (dash-docs--message "was not possible to retrieve json content")
-      ;; return nil
-      nil)
-     ;; default, read json contents
-     (t
-      (setq json-content
-            (with-current-buffer buffer
-              (json-read)))))
-    ;; return json content
-    json-content))
-
-(defun dash-docs-fetch-official-index ()
-  "Fetch official docset's json index."
-  (when (not (file-exists-p dash-docs-official-index))
-    (let ((json (dash-docs-fetch-json dash-docs-docsets-url)))
-      ;; verify if we have any json contents
-      (if (not json) nil
+(defun dash-docs-setup-index ()
+  "Setup the official docset's index."
+  ;; verify if file already exists
+  (when (not (file-exists-p dash-docs-json-cache-file))
+    ;; set json file and parse the index
+    (let* ((json (dash-docs-fetch-json dash-docs-docsets-url
+                                       dash-docs-json-cache-file))
+           (index (dash-docs--parse-index json)))
+      ;; write the file unless we don't have any parsed index
+      (unless (not index)
         ;; write json to the index file
-        (dash-docs--write-index dash-docs-official-index json)))))
+        (dash-docs--write-file index dash-docs-index-file)))))
 
 (defun dash-docs-unofficial-docsets ()
   "Return a list of lists with docsets contributed by users.
 The first element is the docset's name second the docset's archive url."
-  (let ((docsets (dash-docs--read-index dash-docs-user-index)))
+  (let ((docsets (dash-docs--read-file dash-docs-user-index-file)))
     ;; parse docsets list
     (mapcar (lambda (docset)
               (list (assoc 'name docset)
@@ -384,7 +391,7 @@ The first element is the docset's name second the docset's archive url."
 
 (defun dash-docs-official-docsets ()
   "Return a list of official docsets."
-  (let ((index (dash-docs--read-index dash-docs-official-index))
+  (let ((index (dash-docs--read-file dash-docs-index-file))
         (docsets nil))
     ;; for each docset in index clean the ".xml" substring
     (dolist (docset index)
@@ -588,16 +595,22 @@ Report an error unless a valid docset is selected."
     (completing-read (format "%s (%s): " prompt (car choices))
                      choices nil t nil nil choices)))
 
+(defun dash-docs-del-common-docset (docset)
+  "Delete DOCSET from `dash-docs-common-docsets'."
+  ;; delete docset from common docsets
+  (setq dash-docs-common-docsets
+        (delete docset dash-docs-common-docsets)))
+
 ;;;###autoload
 (defun dash-docs-add-connections ()
-  "State default `dash-docs--connections' connections."
+  "Add common connections to `dash-docs--connections'."
   (interactive)
   (dolist (docset dash-docs-common-docsets)
     (dash-docs-add-connection docset)))
 
 ;;;###autoload
-(defun dash-docs-clean-connections ()
-  "Remove (clean `dash-docs--connections') interactively."
+(defun dash-docs-clean-all-connections ()
+  "Clean all connections interactively."
   (interactive)
   ;; set internal var to nil
   (setq dash-docs--connections nil))
@@ -676,8 +689,7 @@ If called interactively prompts for the docset name."
     (dash-docs-minibuffer-read "Deactivate docset"
                                dash-docs-common-docsets)))
   ;; delete docset from common docsets
-  (setq dash-docs-common-docsets
-        (delete docset dash-docs-common-docsets)))
+  (dash-docs-del-common-docset docset))
 
 ;;;###autoload
 (defun dash-docs-find-file ()
@@ -721,15 +733,15 @@ and disables it otherwise."
    (dash-docs-mode
     ;; create docsets default directory (if necessary)
     (dash-docs--created-dir)
-    ;; fetch official index file (if necessary)
-    (dash-docs-fetch-official-index)
-    ;; fetch unofficial (user) index file (if necessary)
-    ;; (dash-docs-fetch-unofficial-index)
-    ;; start common connections
-    (dash-docs-add-connections)
+    ;; setup docsets official index file (if necessary)
+    (dash-docs-setup-index)
+    ;; setup docsets unofficial (user) index file (if necessary)
+    ;; (dash-docs-setup-user-index)
     ;; set dash docs mode indicator to true
     (setq dash-docs-mode t))
    (t
+    ;; clean all connections
+    (dash-docs-clean-all-connections)
     ;; clean internal variables
     (dash-docs--clean-internal-vars)
     ;; set mode indicator to false (nil)
