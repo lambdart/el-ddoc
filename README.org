@@ -18,16 +18,53 @@
 
 * Dependencies
 
-  - cl-lib
-  - json
   - xml
-  - format-spec
-  - async
-  - thingatpt
-  - gnutls
+  - url
+  - url-http
+  - mm-decode
+  - json
+  - cl-macs
 
 * Installation
-** Package
+** Manually
+
+   Clone =dash-docs= repository to an arbitrary location:
+
+   #+BEGIN_SRC sh
+
+   $ git clone https://github.com/esac-io/dash-docs ~/.emacs.d/site-elisp/dash-docs
+
+   #+END_SRC
+
+   Add =Dash-docs= directory to =load-path= in your
+   Emacs initialization file (~init.el~) and load it.
+
+   #+BEGIN_SRC emacs-lisp
+
+   ;; add to load-path
+   (add-to-list 'load-path "/replace/me/to/dash-docs/full/path")
+
+   ;; load dash-docs feature
+   (require 'dash-docs nil t)
+
+   #+END_SRC
+
+   - Note: For a more dynamic approach:
+     - =M-x load-file RET=
+     - =M-x load-library RET dash-docs RET=
+
+** Compile
+
+   * Note: Optional (recommended).
+
+   To compile the files to the =Elisp= byte-compiled representation:
+
+   #+BEGIN_SRC sh
+
+   [at-dash-docs-root-directory]$ make
+
+   #+END_SRC
+
 ** Docsets
 
    Dash-docs uses the same docsets as [[http://www.kapeli.com/dash][Dash]].
@@ -49,31 +86,6 @@
    #+END_SRC
 
    as explained [[https://kapeli.com/docsets#dashdocsetfeed][here]].
-
-* Usage
-** Commands
-** Library
-
-   Search all currently enabled docsets -
-   =dash-docs-docsets= or =dash-docs-common-docsets=:
-
-   #+BEGIN_SRC emacs-lisp
-
-   (dash-docs-search "<pattern>")
-
-   #+END_SRC
-
-   Search a specific docset:
-
-   #+BEGIN_SRC emacs-lisp
-
-   (dash-docs-search-docset "<docset>" "<pattern>")
-
-   #+END_SRC
-
-   The command `dash-docs-reset-connections` will clear the connections
-   to all sqlite db's. Use it in case of errors when adding new docsets.
-   The next call to a search function will recreate them.
 
 * Customize
 
