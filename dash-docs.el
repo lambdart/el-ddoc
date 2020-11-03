@@ -277,17 +277,6 @@ PATTERN is used to compose the SQL WHERE clause."
   "Get the docsets configured for the current buffer."
   (or (and (boundp 'dash-docs-docsets) dash-docs-docsets) '()))
 
-(defun dash-docs-available-connections ()
-  "Return available connections."
-  (let ((docsets (dash-docs-buffer-local-docsets)))
-    ;; append local docsets with common ones
-    (setq docsets (append docsets dash-docs-common-docsets))
-    ;; get unique 'connections' associated with the docsets
-    (delq nil
-          (mapcar (lambda (docset)
-                    (assoc docset dash-docs--connections))
-                  docsets))))
-
 (defun dash-docs-add-connection (docset)
   "Add DOCSET connection to `dash-docs--connections'."
   ;; verify if docset is already present
@@ -304,20 +293,38 @@ PATTERN is used to compose the SQL WHERE clause."
   (dolist (docset (dash-docs-buffer-local-docsets))
     (dash-docs-add-connection docset)))
 
-(defun dash-docs-connections (pattern)
-  "Return a list of dash-docs connections.
+(defun dash-docs-connections ()
+  "Return available connections."
+  (let ((docsets (dash-docs-buffer-local-docsets)))
+    ;; append local docsets with common ones
+    (setq docsets (append docsets dash-docs-common-docsets))
+    ;; get unique 'connections' associated with the docsets
+    (delq nil
+          (mapcar (lambda (docset)
+                    (assoc docset dash-docs--connections))
+                  docsets))))
 
+(defun dash-docs-search-connections (pattern)
+  "Search PATTERN in the available connections.
 If PATTERN starts with the name of a docset
 followed by a space, narrow the used connections
 to just that one."
-
-  (let ((connections (dash-docs-available-connections)))
+  (let ((connections (dash-docs-connections)))
     (or (cl-loop for connection in connections
                  if (string-prefix-p
                      (concat (downcase (car connection)) " ")
                      (downcase pattern))
                  return (list connection))
         connections)))
+
+(defun dash-docs-del-connection (docset)
+  "Delete a DOCSET connection.
+Remove the DOCSET from the `dash-docs--connections'."
+  (let*  ((connections (dash-docs-connections))
+          (connection (assoc docset connections)))
+    (when (member connection connections)
+      (setq dash-docs--connections
+            (delq connection connections)))))
 
 (defun dash-docs--write-file (contents file)
   "Write CONTENTS in the target FILE."
@@ -581,7 +588,7 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
 
 (defun dash-docs-search-entries (pattern)
   "Search a PATTERN in all available connected docsets."
-  (cl-loop for connection in (dash-docs-connections pattern)
+  (cl-loop for connection in (dash-docs-search-connections pattern)
            appending (dash-docs-search-entry connection pattern)))
 
 (defun dash-docs-docsets-entry-candidates ()
@@ -598,22 +605,18 @@ Report an error unless a valid docset is selected."
 (defun dash-docs-del-common-docset (docset)
   "Delete DOCSET from `dash-docs-common-docsets'."
   ;; delete docset from common docsets
-  (setq dash-docs-common-docsets
-        (delete docset dash-docs-common-docsets)))
-
-;;;###autoload
-(defun dash-docs-add-connections ()
-  "Add common connections to `dash-docs--connections'."
-  (interactive)
-  (dolist (docset dash-docs-common-docsets)
-    (dash-docs-add-connection docset)))
+  (when (member docset dash-docs-common-docsets)
+    (setq dash-docs-common-docsets
+          (delete docset dash-docs-common-docsets))))
 
 ;;;###autoload
 (defun dash-docs-clean-all-connections ()
   "Clean all connections interactively."
   (interactive)
-  ;; set internal var to nil
-  (setq dash-docs--connections nil))
+  ;; clean connection
+  (setq dash-docs--connections '())
+  ;; clean activated docsets
+  (setq dash-docs-common-docsets '()))
 
 ;;;###autoload
 (defun dash-docs-install-unofficial-docset (docset-name)
@@ -688,7 +691,9 @@ If called interactively prompts for the docset name."
    (list
     (dash-docs-minibuffer-read "Deactivate docset"
                                dash-docs-common-docsets)))
-  ;; delete docset from common docsets
+  ;; delete its connection
+  (dash-docs-del-connection docset)
+  ;; remove docset from common docsets
   (dash-docs-del-common-docset docset))
 
 ;;;###autoload
