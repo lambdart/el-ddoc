@@ -31,11 +31,7 @@
 (require 'url)
 (require 'url-http)
 (require 'mm-decode)
-
 (require 'json)
-(require 'cl-lib)
-(require 'thingatpt)
-(require 'format-spec)
 
 (eval-when-compile
   (require 'cl-macs))
@@ -581,7 +577,7 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
     (erase-buffer)
     (insert ";; dash-docs error logging:\n\n")))
 
-(defun dash-docs-search-entry (connection pattern)
+(defun dash-docs-db-search (connection pattern)
   "Search PATTERN in CONNECTION, return a list of formatted rows."
   (cl-loop for row in (dash-docs-sql-search connection pattern)
            collect (dash-docs--format-row connection row)))
@@ -589,10 +585,10 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
 (defun dash-docs-search-entries (pattern)
   "Search a PATTERN in all available connected docsets."
   (cl-loop for connection in (dash-docs-search-connections pattern)
-           appending (dash-docs-search-entry connection pattern)))
+           appending (dash-docs-db-search connection pattern)))
 
-(defun dash-docs-docsets-entry-candidates ()
-  "Return all available connected docsets entry candidates."
+(defun dash-docs-docsets-choices ()
+  "Return all available connected docsets entries."
   (dash-docs-search-entries ""))
 
 (defun dash-docs-minibuffer-read (prompt choices)
@@ -704,7 +700,7 @@ If called interactively prompts for the docset name."
   (when (not (> (length dash-docs-common-docsets) 0))
     (call-interactively 'dash-docs-activate-docset))
   ;; map candidates
-  (let* ((candidates (dash-docs-docsets-entry-candidates))
+  (let* ((candidates (dash-docs-docsets-choices))
          (candidate (completing-read "Docs: " candidates nil t)))
     (if (equal candidate "")
         (dash-docs--message "error, please provide a search string"))
