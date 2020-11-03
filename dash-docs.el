@@ -574,7 +574,7 @@ HTTP(S) URL."
                                               (dash-docs-docset-path docset))
                             filename))
       ;; return parsed query file url
-      (prin1 (caar (url-parse-query-string fileurl))))))
+      (caar (url-parse-query-string fileurl)))))
 
 (defun dash-docs-browse-url (candidate)
   "Call to `browse-url' after parse the chosen CANDIDATE."
