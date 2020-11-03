@@ -269,6 +269,47 @@ PATTERN is used to compose the SQL WHERE clause."
     (when compose-select-query-func
       (funcall compose-select-query-func pattern))))
 
+(defun dash-docs-sql-search (docset pattern)
+  "Search for and PATTERN patter using the select DOCSET.
+
+Return a list of db results.
+
+Ex:
+
+'((\"func\" \"BLPOP\" \"commands/blpop.html\")
+ (\"func\" \"PUBLISH\" \"commands/publish.html\")
+ (\"func\" \"problems\" \"topics/problems.html\"))"
+
+  (let* ((docset-type (cl-caddr docset))
+         ;; set docset database path
+         (db-path (cadr docset))
+         ;; set the sql query to be executed
+         (query (dash-docs-compose-sql-query docset-type pattern)))
+    ;; execute the query
+    (dash-docs-exec-query db-path query)))
+
+(defun dash-docs--format-row (connection row)
+  "Format candidate (ROW) using its CONNECTION."
+  (cons (format-spec dash-docs-candidate-format
+                     (list (cons ?d (cl-first connection))
+                           (cons ?n (cl-second row))
+                           (cons ?t (cl-first row))
+                           (cons ?f (replace-regexp-in-string
+                                     "^.*/\\([^/]*\\)\\.html?#?.*"
+                                     "\\1"
+                                     (cl-third row)))))
+        (list (car connection) row)))
+
+(defun dash-docs-search-docset-entry (connection pattern)
+  "Search PATTERN in CONNECTION, return a list of formatted rows."
+  (cl-loop for row in (dash-docs-sql-search connection pattern)
+           collect (dash-docs--format-row connection row)))
+
+(defun dash-docs-search-docset-entries (pattern)
+  "Search a PATTERN in all available connected docsets."
+  (cl-loop for connection in (dash-docs-search-connections pattern)
+           appending (dash-docs-search-docset-entry connection pattern)))
+
 (defun dash-docs-buffer-local-docsets ()
   "Get the docsets configured for the current buffer."
   (or (and (boundp 'dash-docs-docsets) dash-docs-docsets) '()))
@@ -302,20 +343,20 @@ PATTERN is used to compose the SQL WHERE clause."
 
 (defun dash-docs-search-connections (pattern)
   "Search PATTERN in the available connections.
-If PATTERN starts with the name of a docset
-followed by a space, narrow the used connections
-to just that one."
+If PATTERN starts with the name of a docset,
+narrow the used connections to just that one."
   (let ((connections (dash-docs-connections)))
-    (or (cl-loop for connection in connections
-                 if (string-prefix-p
-                     (concat (downcase (car connection)) " ")
-                     (downcase pattern))
-                 return (list connection))
-        connections)))
+    ;; if no pattern just return all available connections
+    (if (equal pattern "") connections
+      ;; return connection filter by pattern:
+      ;; docset name
+      (cl-loop for connection in connections
+               if (string-prefix-p (car connection)
+                                   pattern t)
+               return (list connection)))))
 
 (defun dash-docs-del-connection (docset)
-  "Delete a DOCSET connection.
-Remove the DOCSET from the `dash-docs--connections'."
+  "Remove DOCSET connection from `dash-docs--connections'."
   (let*  ((connections (dash-docs-connections))
           (connection (assoc docset connections)))
     (when (member connection connections)
@@ -508,37 +549,6 @@ If the search starts with the name of the docset, ignore it."
     ;; remove string in pattern
     (replace-regexp-in-string regexp "" pattern)))
 
-(defun dash-docs-sql-search (docset pattern)
-  "Search for and PATTERN patter using the select DOCSET.
-
-Return a list of db results.
-
-Ex:
-
-'((\"func\" \"BLPOP\" \"commands/blpop.html\")
- (\"func\" \"PUBLISH\" \"commands/publish.html\")
- (\"func\" \"problems\" \"topics/problems.html\"))"
-
-  (let* ((docset-type (cl-caddr docset))
-         ;; set docset database path
-         (db-path (cadr docset))
-         ;; set the sql query to be executed
-         (query (dash-docs-compose-sql-query docset-type pattern)))
-    ;; execute the query
-    (dash-docs-exec-query db-path query)))
-
-(defun dash-docs--format-row (connection row)
-  "Format candidate (ROW) using its CONNECTION."
-  (cons (format-spec dash-docs-candidate-format
-                     (list (cons ?d (cl-first connection))
-                           (cons ?n (cl-second row))
-                           (cons ?t (cl-first row))
-                           (cons ?f (replace-regexp-in-string
-                                     "^.*/\\([^/]*\\)\\.html?#?.*"
-                                     "\\1"
-                                     (cl-third row)))))
-        (list (car connection) row)))
-
 (defun dash-docs-parse-url (docset-name filename &optional anchor)
   "Return the full, absolute URL to documentation.
 
@@ -577,19 +587,9 @@ or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
     (erase-buffer)
     (insert ";; dash-docs error logging:\n\n")))
 
-(defun dash-docs-db-search (connection pattern)
-  "Search PATTERN in CONNECTION, return a list of formatted rows."
-  (cl-loop for row in (dash-docs-sql-search connection pattern)
-           collect (dash-docs--format-row connection row)))
-
-(defun dash-docs-search-entries (pattern)
-  "Search a PATTERN in all available connected docsets."
-  (cl-loop for connection in (dash-docs-search-connections pattern)
-           appending (dash-docs-db-search connection pattern)))
-
 (defun dash-docs-docsets-choices ()
   "Return all available connected docsets entries."
-  (dash-docs-search-entries ""))
+  (dash-docs-search-docset-entries ""))
 
 (defun dash-docs-minibuffer-read (prompt choices)
   "Read from the `minibuffer' using PROMPT and CHOICES as candidates.
