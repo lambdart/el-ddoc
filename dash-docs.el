@@ -549,33 +549,42 @@ If the search starts with the name of the docset, ignore it."
     ;; remove string in pattern
     (replace-regexp-in-string regexp "" pattern)))
 
-(defun dash-docs-parse-url (docset-name filename &optional anchor)
-  "Return the full, absolute URL to documentation.
-
-Either a file:/// URL joining DOCSET-NAME, FILENAME & ANCHOR
-or a http(s):// URL formed as-is if FILENAME is a full HTTP(S) URL."
-
-  (let* ((filename (replace-regexp-in-string "<dash_entry_.*>" "" filename))
-         (path (format "%s%s" filename
-                       (if anchor (format "#%s" anchor) ""))))
-    (if (string-match-p "^https?://" path) path
-      (replace-regexp-in-string
-       " "
-       "%20"
-       (concat "file:///"
-               (expand-file-name "Contents/Resources/Documents/"
-                                 (dash-docs-docset-path docset-name))
-               path)))))
+(defun dash-docs-parse-url (docset filename &optional anchor)
+  "Return absolute documentation FILE/URL.
+Either a file:/// URL joining DOCSET, FILENAME & ANCHOR
+or a http(s):// URL formed as-is if FILENAME is equal to
+HTTP(S) URL."
+  (let ((filename (format "%s%s" filename
+                          (if anchor (format "#%s" anchor) "")))
+        (regexps '("<dash_entry_.*>"
+                   "//apple_ref/Function/"
+                   "//apple_ref/func/"))
+        (fileurl nil))
+    ;; clean filename
+    (dolist (regexp regexps)
+      (setq filename (replace-regexp-in-string regexp
+                                               ""
+                                               filename)))
+    ;; verify url type (file:// or http://)
+    (if (string-match-p "^https?://" filename)
+        filename
+      ;; set file url: file:///URL
+      (setq fileurl (concat "file:///"
+                            (expand-file-name "Contents/Resources/Documents/"
+                                              (dash-docs-docset-path docset))
+                            filename))
+      ;; return parsed query file url
+      (prin1 (caar (url-parse-query-string fileurl))))))
 
 (defun dash-docs-browse-url (candidate)
   "Call to `browse-url' after parse the chosen CANDIDATE."
   ;; parse chosen candidate
-  (let ((name (car candidate))
-        (file (nth 2 (cadr candidate)))
+  (let ((docset (car candidate))
+        (filename (nth 2 (cadr candidate)))
         (anchor (nth 3 (cadr candidate))))
-    ;; open url (possible file) using the chosen browser
+    ;; open url (or file) using the chosen browser
     (funcall dash-docs-browser-func
-             (dash-docs-parse-url name file anchor))))
+             (dash-docs-parse-url docset filename anchor))))
 
 (defun dash-docs--debug-buffer ()
   "Return the `dash-docs' debug buffer."
