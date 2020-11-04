@@ -554,34 +554,34 @@ If the search starts with the name of the docset, ignore it."
 Either a file:/// URL joining DOCSET, FILENAME & ANCHOR
 or a http(s):// URL formed as-is if FILENAME is equal to
 HTTP(S) URL."
-  (let ((filename (format "%s%s" filename
-                          (if anchor (format "#%s" anchor) "")))
-        (regexps '("<dash_entry_.*>"
-                   "//apple_ref/Function/"
-                   "//apple_ref/func/"))
-        (fileurl nil))
-    ;; clean filename
-    (dolist (regexp regexps)
-      (setq filename (replace-regexp-in-string regexp
-                                               ""
-                                               filename)))
-    ;; verify url type (file:// or http://)
+  (let* ((anchor (if anchor (format "#%s" anchor) ""))
+         (filename (format "%s%s" filename anchor)))
+    ;; verify url type
     (if (string-match-p "^https?://" filename)
         filename
-      ;; set file url: file:///URL
-      (setq fileurl (concat "file:///"
-                            (expand-file-name "Contents/Resources/Documents/"
-                                              (dash-docs-docset-path docset))
-                            filename))
-      ;; return parsed query file url
-      (caar (url-parse-query-string fileurl)))))
+      ;; return file:///URL
+      (concat "file:///"
+              (expand-file-name "Contents/Resources/Documents/"
+                                (dash-docs-docset-path docset))
+              filename))))
 
 (defun dash-docs-browse-url (candidate)
   "Call to `browse-url' after parse the chosen CANDIDATE."
   ;; parse chosen candidate
   (let ((docset (car candidate))
         (filename (nth 2 (cadr candidate)))
-        (anchor (nth 3 (cadr candidate))))
+        (anchor (nth 3 (cadr candidate)))
+        ;; auxiliary
+        (strings nil))
+    ;; verify anchor
+    (unless anchor
+      (setq strings (split-string filename "#")
+            filename (car strings)
+            anchor (cadr strings)))
+    ;; clean filename
+    (setq filename (replace-regexp-in-string "<dash_entry_.*>"
+                                             ""
+                                             filename))
     ;; open url (or file) using the chosen browser
     (funcall dash-docs-browser-func
              (dash-docs-parse-url docset filename anchor))))
