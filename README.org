@@ -12,6 +12,10 @@
   It doesn't require =Dash= app, we rely on any
   =html= file browser, however =eww= is recommended!
 
+* Version
+
+  - Alpha 0.0.3
+
 * Requirements
 
   - SQLite3
