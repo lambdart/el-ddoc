@@ -607,7 +607,7 @@ HTTP(S) URL."
     (erase-buffer)
     (insert ";; dash-docs error logging:\n\n")))
 
-(defun dash-docs-docsets-choices ()
+(defun dash-docs-docsets-collection ()
   "Return all available connected docsets entries."
   (dash-docs-search-docset-entries ""))
 
@@ -625,7 +625,6 @@ Report an error unless a valid docset is selected."
     (setq dash-docs-common-docsets
           (delete docset dash-docs-common-docsets))))
 
-;;;###autoload
 (defun dash-docs-clean-all-connections ()
   "Clean all connections interactively."
   (interactive)
@@ -634,7 +633,6 @@ Report an error unless a valid docset is selected."
   ;; clean activated docsets
   (setq dash-docs-common-docsets '()))
 
-;;;###autoload
 (defun dash-docs-install-unofficial-docset (docset-name)
   "Download an unofficial docset with specified DOCSET-NAME."
   ;; maps docset name parameter
@@ -647,7 +645,6 @@ Report an error unless a valid docset is selected."
                                  (dash-docs-unofficial-docsets)))))
     (dash-docs--install-docset url docset-name)))
 
-;;;###autoload
 (defun dash-docs-install-docset-from-file (docset-temp-file)
   "Extract the content of DOCSET-TEMP-FILE.
 Move it to `dash-docs-docsets-dir' and activate the docset."
@@ -659,7 +656,6 @@ Move it to `dash-docs-docsets-dir' and activate the docset."
     ;; debug message
     (dash-docs--message "docset installed at %s" folder)))
 
-;;;###autoload
 (defun dash-docs-install-docset (docset-name)
   "Download an official docset with specified DOCSET-NAME.
 Move its stuff to docsets-path."
@@ -684,7 +680,6 @@ Move its stuff to docsets-path."
     ;; install docset
     (dash-docs--install-docset url docset-name)))
 
-;;;###autoload
 (defun dash-docs-activate-docset (docset)
   "Activate a DOCSET, i.e, make a connection to its database.
 If called interactively prompts for the docset name."
@@ -698,7 +693,6 @@ If called interactively prompts for the docset name."
   ;; start connection
   (dash-docs-add-connection docset))
 
-;;;###autoload
 (defun dash-docs-deactivate-docset (docset)
   "Deactivate DOCSET, i.e, update common docsets.
 If called interactively prompts for the docset name."
@@ -712,7 +706,6 @@ If called interactively prompts for the docset name."
   ;; remove docset from common docsets
   (dash-docs-del-common-docset docset))
 
-;;;###autoload
 (defun dash-docs-find-file ()
   "Find dash documentation file."
   (interactive)
@@ -720,7 +713,7 @@ If called interactively prompts for the docset name."
   (when (not (> (length dash-docs-common-docsets) 0))
     (call-interactively 'dash-docs-activate-docset))
   ;; map candidates
-  (let* ((candidates (dash-docs-docsets-choices))
+  (let* ((candidates (dash-docs-docsets-collection))
          (candidate (completing-read "Docs: " candidates nil t)))
     (if (equal candidate "")
         (dash-docs--message "error, please provide a search string"))
@@ -729,7 +722,6 @@ If called interactively prompts for the docset name."
     ;; browse url a.k.a find file
     (dash-docs-browse-url candidate)))
 
-;;;###autoload
 (defun dash-docs-show-mode-state ()
   "Show dash-docs minor mode state: on/off."
   (interactive)
@@ -777,7 +769,6 @@ and disables it otherwise."
   ;; show dash-docs mode state: on/off
   (dash-docs-show-mode-state))
 
-;;;###autoload
 (defun turn-off-dash-docs-mode ()
   "Disable dash-docs minor mode."
   (interactive)
