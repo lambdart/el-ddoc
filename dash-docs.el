@@ -158,7 +158,7 @@ These docsets are not available to install."
     dash-docs-common-docsets)
   "List of dash-docs internal variables.")
 
-(defvar dash-docs-message-prefix "[dash-docs]: "
+(defvar dash-docs-message-prefix "[Dash-docs]: "
   "Internal dash-docs message prefix.")
 
 (defvar dash-docs-mode nil
@@ -214,13 +214,13 @@ Note: set this variable directly has no effect, use
 (defun dash-docs-docset-db-path (docset-name)
   "Return database DOCSET path."
   (let ((docset-path (dash-docs-docset-path docset-name)))
-     ;; verify docset path
+    ;; verify docset path
     (if docset-path
-        (expand-file-name "Contents/Resources/docSet.dsidx" docset-path))
-    ;; debug message
-    (dash-docs--message "missing docset '%s'" docset-name)
-    ;; return nil
-    nil))
+        (expand-file-name "Contents/Resources/docSet.dsidx" docset-path)
+      ;; debug message
+      (dash-docs--message "missing docset '%s'" docset-name)
+      ;; return nil
+      nil)))
 
 (defun dash-docs-parse-sql-results (sql-result-string)
   "Parse SQL-RESULT-STRING splitting it by newline and '|' chars."
@@ -577,9 +577,8 @@ or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
                                 (dash-docs-docset-path name))
               filename))))
 
-(defun dash-docs-browse-url (docset)
-  "Call to `browse-url' after parse the chosen DOCSET."
-  ;; parse chosen docset
+(defun dash-docs-split-docset (docset)
+  "Split DOCSET elements, return (NAME FILENAME ANCHOR)."
   (let ((name (car docset))
         (filename (nth 2 (cadr docset)))
         (anchor (nth 3 (cadr docset)))
@@ -594,9 +593,18 @@ or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
     (setq filename (replace-regexp-in-string "<dash_entry_.*>"
                                              ""
                                              filename))
-    ;; open url (or file) using the chosen browser
-    (funcall dash-docs-browser-func
-             (dash-docs-compose-url name filename anchor))))
+    ;; return the elements list
+    (list name filename anchor)))
+
+(defun dash-docs-browse-url (docset)
+  "Call to `browse-url' after parse the chosen DOCSET."
+  ;; split elements and compose final url
+  (let* ((elts (dash-docs-split-docset docset))
+         (url (apply 'dash-docs-compose-url elts)))
+    (prin1 elts)
+    ;; finally invoke browser function (implicit: open the file)
+    ;; in the chosen browser
+    (funcall dash-docs-browser-func url)))
 
 (defun dash-docs--debug-buffer ()
   "Return the `dash-docs' debug buffer."
