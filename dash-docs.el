@@ -202,23 +202,25 @@ Note: set this variable directly has no effect, use
         (and (y-or-n-p prompt))
         (mkdir dir t))))
 
-(defun dash-docs-docset-path (docset)
-  "Return DOCSET (full) path."
+(defun dash-docs-docset-path (docset-name)
+  "Return DOCSET-NAME full path."
   (let* (;; set directory
-         (dir (expand-file-name dash-docs-docsets-dir))
+         (docset-dir (expand-file-name dash-docs-docsets-dir))
          ;; format docset path
-         (path (format "%s/%s.docset" dir docset)))
+         (docset-path (format "%s/%s.docset" docset-dir docset-name)))
     ;; verify if the path exists
-    (if (file-directory-p path) path nil)))
+    (if (file-directory-p docset-path) docset-path nil)))
 
-(defun dash-docs-docset-db-path (docset)
+(defun dash-docs-docset-db-path (docset-name)
   "Return database DOCSET path."
-  (let ((path (dash-docs-docset-path docset)))
-    ;; if not found, error
-    (if (not path)
-        (error "missing docset '%s', please install it first" docset)
-      ;; else return expanded path
-      (expand-file-name "Contents/Resources/docSet.dsidx" path))))
+  (let ((docset-path (dash-docs-docset-path docset-name)))
+     ;; verify docset path
+    (if docset-path
+        (expand-file-name "Contents/Resources/docSet.dsidx" docset-path))
+    ;; debug message
+    (dash-docs--message "missing docset '%s'" docset-name)
+    ;; return nil
+    nil))
 
 (defun dash-docs-parse-sql-results (sql-result-string)
   "Parse SQL-RESULT-STRING splitting it by newline and '|' chars."
@@ -330,11 +332,12 @@ Ex:
   ;; verify if docset is already present
   (when (not (assoc docset dash-docs--connections))
     ;; connection parameters
-    (let* ((db-path (dash-docs-docset-db-path docset))
-           (type (dash-docs-docset-type db-path))
-           (connection (list docset db-path type)))
-      ;; add connection to dash-docs--connections
-      (push connection dash-docs--connections))))
+    (let ((db-path (dash-docs-docset-db-path docset)))
+      (when db-path
+        (let* ((type (dash-docs-docset-type db-path))
+               (connection (list docset db-path type)))
+          ;; add connection to dash-docs--connections
+          (push connection dash-docs--connections))))))
 
 (defun dash-docs-add-buffer-local-connections ()
   "Add dash-docs buffer local connections."
@@ -359,8 +362,7 @@ narrow the used connections to just that one."
   (let ((connections (dash-docs-connections)))
     ;; if no pattern just return all available connections
     (if (equal pattern "") connections
-      ;; return connection filter by pattern:
-      ;; docset name
+      ;; return connection filter by pattern: docset name
       (cl-loop for connection in connections
                if (string-prefix-p (car connection)
                                    pattern t)
@@ -560,11 +562,10 @@ If the search starts with the name of the docset, ignore it."
     ;; remove string in pattern
     (replace-regexp-in-string regexp "" pattern)))
 
-(defun dash-docs-parse-url (docset filename &optional anchor)
-  "Return absolute documentation FILE/URL.
-Either a file:/// URL joining DOCSET, FILENAME & ANCHOR
-or a http(s):// URL formed as-is if FILENAME is equal to
-HTTP(S) URL."
+(defun dash-docs-compose-url (name filename &optional anchor)
+  "Compose the final URL.
+Either a file:/// URL joining docset NAME, FILENAME & ANCHOR
+or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
   (let* ((anchor (if anchor (format "#%s" anchor) ""))
          (filename (format "%s%s" filename anchor)))
     ;; verify url type
@@ -573,15 +574,15 @@ HTTP(S) URL."
       ;; return file:///URL
       (concat "file:///"
               (expand-file-name "Contents/Resources/Documents/"
-                                (dash-docs-docset-path docset))
+                                (dash-docs-docset-path name))
               filename))))
 
-(defun dash-docs-browse-url (candidate)
-  "Call to `browse-url' after parse the chosen CANDIDATE."
-  ;; parse chosen candidate
-  (let ((docset (car candidate))
-        (filename (nth 2 (cadr candidate)))
-        (anchor (nth 3 (cadr candidate)))
+(defun dash-docs-browse-url (docset)
+  "Call to `browse-url' after parse the chosen DOCSET."
+  ;; parse chosen docset
+  (let ((name (car docset))
+        (filename (nth 2 (cadr docset)))
+        (anchor (nth 3 (cadr docset)))
         ;; auxiliary
         (strings nil))
     ;; verify anchor
@@ -595,7 +596,7 @@ HTTP(S) URL."
                                              filename))
     ;; open url (or file) using the chosen browser
     (funcall dash-docs-browser-func
-             (dash-docs-parse-url docset filename anchor))))
+             (dash-docs-compose-url name filename anchor))))
 
 (defun dash-docs--debug-buffer ()
   "Return the `dash-docs' debug buffer."
@@ -712,15 +713,15 @@ If called interactively prompts for the docset name."
   ;; verify if common docsets were set
   (when (not (> (length dash-docs-common-docsets) 0))
     (call-interactively 'dash-docs-activate-docset))
-  ;; map candidates
-  (let* ((candidates (dash-docs-docsets-collection))
-         (candidate (completing-read "Docs: " candidates nil t)))
-    (if (equal candidate "")
+  ;; map collection
+  (let* ((collection (dash-docs-docsets-collection))
+         (docset (completing-read "Docset: " collection nil t)))
+    (if (equal docset "")
         (dash-docs--message "error, please provide a search string"))
-    ;; update the candidate
-    (setq candidate (cdr (assoc candidate candidates)))
+    ;; update the docset
+    (setq docset (cdr (assoc docset collection)))
     ;; browse url a.k.a find file
-    (dash-docs-browse-url candidate)))
+    (dash-docs-browse-url docset)))
 
 (defun dash-docs-show-mode-state ()
   "Show dash-docs minor mode state: on/off."
