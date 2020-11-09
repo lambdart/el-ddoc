@@ -167,8 +167,14 @@ Note: set this variable directly has no effect, use
 `turn-on-dash-doc-mode' stead.")
 
 (defvar dash-docs-json-cache-file
-  (expand-file-name "cache/dash-docs-official.json" user-emacs-directory)
+  (expand-file-name "cache/dash-docs-official.json"
+                    user-emacs-directory)
   "Official json cache file.")
+
+(defvar dash-docs-json-user-cache-file
+  (expand-file-name "cache/dash-docs-unofficial.json"
+                    user-emacs-directory)
+  "Unofficial json cache file.")
 
 (defmacro dash-docs--message (fmt &rest args)
   "Just an internal `message' helper."
@@ -380,7 +386,9 @@ narrow the used connections to just that one."
   "Write CONTENTS in the target FILE."
   (with-temp-file file
     ;; insert file contents in the file buffer (implicit)
-    (prin1 contents (current-buffer))))
+    (prin1 contents (current-buffer)))
+  ;; return nothing
+  nil)
 
 (defun dash-docs--read-file (file)
   "Return FILE contents."
@@ -413,6 +421,15 @@ narrow the used connections to just that one."
     ;; return json content
     json-contents))
 
+(defun dash-docs--parse-contrib-index (json)
+  "Parse index JSON elements."
+  (delq nil
+        (mapcar (lambda (element)
+                  (let* ((name (assoc-default 'name element))
+                         (archive (assoc-default 'archive element)))
+                    (list name archive)))
+                json)))
+
 (defun dash-docs--parse-index (json)
   "Parse index JSON elements."
   (delq nil
@@ -436,14 +453,24 @@ narrow the used connections to just that one."
         ;; write json to the index file
         (dash-docs--write-file index dash-docs-index-file)))))
 
+(defun dash-docs-setup-unofficial-index ()
+  "Setup unofficial contrib index."
+  ;; verify if file already exists
+  (when (not (file-exists-p dash-docs-json-user-cache-file))
+    ;; set json file and parse the index
+    (let* ((json (dash-docs-fetch-json dash-docs-unofficial-url
+                                       dash-docs-json-user-cache-file))
+           (index (dash-docs--parse-contrib-index json)))
+      ;; write json to the index file
+      (dash-docs--write-file index dash-docs-user-index-file))))
+
 (defun dash-docs-unofficial-docsets ()
   "Return a list of lists with docsets contributed by users.
 The first element is the docset's name second the docset's archive url."
   (let ((docsets (dash-docs--read-file dash-docs-user-index-file)))
     ;; parse docsets list
     (mapcar (lambda (docset)
-              (list (assoc 'name docset)
-                    (assoc 'archive docset)))
+              (car docset))
             docsets)))
 
 (defun dash-docs-official-docsets ()
@@ -487,41 +514,40 @@ Return the folder that was newly extracted."
       ;; format the folder and return it (string)
       (replace-regexp-in-string "^x " "" folder))))
 
-(defun dash-docs--fetch-extract-archive (url temp-file)
+(defun dash-docs--fetch-extract-archive (url archive)
   "Fetch URL and extract the retrieved docset TEMP-FILE archive."
   ;; http request (async version of url-copy-file)
   (url-http url
             (lambda (&rest args)
+              (princ args)
               ;; download the file
-              (let* ((temp-file (car args))
+              (let* ((file (cadr args))
                      (buffer (current-buffer))
                      (handle (with-current-buffer buffer
                                (mm-dissect-buffer t))))
                 ;; return the default file protection for created files
                 (let ((mm-attachment-file-modes (default-file-modes)))
-                  (mm-save-part-to-file handle temp-file))
+                  (mm-save-part-to-file handle file))
                 ;; necessary?
                 (kill-buffer buffer)
                 ;; destroy MIME parts
                 (mm-destroy-parts handle)
                 ;; extract docset
-                (dash-docs-extract-archive temp-file)))
-            ;; temporary file archive
-            (list temp-file)))
-
-;; (defun dash-docs-fetch-xlm (&rest args))
+                (dash-docs-extract-archive file)))
+            ;; temporary archive file
+            `(nil ,archive)))
 
 (defun dash-docs--install-docset (url docset-name)
   "Download a docset from URL and install with name DOCSET-NAME."
-  ;; set docset temporary path
-  (let ((temp-file
-         (format "%s%s-docset.tgz"
+  ;; set docset temporary archive
+  (let ((archive
+         (format "%s%s.tgz"
                  temporary-file-directory
                  docset-name))
         ;;  update (parse) generic url
         (url (url-generic-parse-url url)))
     ;; fetch and extract the temporary archive
-    (dash-docs--fetch-extract-archive url temp-file)))
+    (dash-docs--fetch-extract-archive url archive)))
 
 (defun dash-docs-installed-docsets ()
   "Return a list of installed docsets."
@@ -642,21 +668,9 @@ Report an error unless a valid docset is selected."
   ;; clean activated docsets
   (setq dash-docs-common-docsets '()))
 
-(defun dash-docs-install-unofficial-docset (docset-name)
-  "Download an unofficial docset with specified DOCSET-NAME."
-  ;; maps docset name parameter
-  (interactive
-   (list (dash-docs-minibuffer-read
-          "Install docset"
-          (mapcar 'car (dash-docs-unofficial-docsets)))))
-  ;; install docset
-  (let ((url (car (assoc-default docset-name
-                                 (dash-docs-unofficial-docsets)))))
-    (dash-docs--install-docset url docset-name)))
-
 (defun dash-docs-install-docset-from-file (docset-temp-file)
   "Extract the content of DOCSET-TEMP-FILE.
-Move it to `dash-docs-docsets-dir' and activate the docset."
+gMove it to `dash-docs-docsets-dir' and activate the docset."
   ;; maps docset temporary path parameter
   (interactive
    (list (car (find-file-read-args "Docset Archive: " t))))
@@ -664,6 +678,19 @@ Move it to `dash-docs-docsets-dir' and activate the docset."
   (let ((folder (dash-docs-extract-archive docset-temp-file)))
     ;; debug message
     (dash-docs--message "docset installed at %s" folder)))
+
+(defun dash-docs-install-unofficial-docset (docset-name)
+  "Download an unofficial docset with specified DOCSET-NAME."
+  ;; maps docset name parameter
+  (interactive
+   (list (dash-docs-minibuffer-read "Install docset"
+                                    (dash-docs-unofficial-docsets))))
+  ;; set url
+  (let ((url (car (assoc-default docset-name
+                                 (dash-docs--read-file
+                                  dash-docs-user-index-file)))))
+    ;; install docset (fetch and extract) asynchronous
+    (dash-docs--install-docset url docset-name)))
 
 (defun dash-docs-install-docset (docset-name)
   "Download an official docset with specified DOCSET-NAME.
@@ -731,7 +758,7 @@ If called interactively prompts for the docset name."
     ;; browse url a.k.a find file
     (dash-docs-browse-url docset)))
 
-(defun dash-docs-show-mode-state ()
+(defun dash-docs-echo-mode-state ()
   "Show dash-docs minor mode state: on/off."
   (interactive)
   ;; show mode state in echo area
@@ -758,7 +785,7 @@ and disables it otherwise."
     ;; setup docsets official index file (if necessary)
     (dash-docs-setup-index)
     ;; setup docsets unofficial (user) index file (if necessary)
-    ;; (dash-docs-setup-user-index)
+    (dash-docs-setup-unofficial-index)
     ;; set dash docs mode indicator to true
     (setq dash-docs-mode t))
    (t
@@ -776,7 +803,7 @@ and disables it otherwise."
   ;; turn on dash-docs mode
   (dash-docs-mode 1)
   ;; show dash-docs mode state: on/off
-  (dash-docs-show-mode-state))
+  (dash-docs-echo-mode-state))
 
 (defun turn-off-dash-docs-mode ()
   "Disable dash-docs minor mode."
@@ -784,7 +811,7 @@ and disables it otherwise."
   ;; turn off dash-docs mode
   (dash-docs-mode 0)
   ;; show dash-docs mode state
-  (dash-docs-show-mode-state))
+  (dash-docs-echo-mode-state))
 
 (provide 'dash-docs)
 
