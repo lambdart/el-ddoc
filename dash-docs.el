@@ -479,7 +479,7 @@ The first element is the docset's name second the docset's archive url."
         (docsets nil))
     ;; for each docset in index clean the ".xml" substring
     (dolist (docset index)
-      (push (string-replace ".xml" "" (car docset)) docsets))
+      (push (replace-regexp-in-string ".xml" "" (car docset)) docsets))
     ;; return docsets
     docsets))
 
