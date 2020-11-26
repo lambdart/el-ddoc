@@ -2,16 +2,16 @@
 ;;
 ;; Copyright (C) 2013-2014  Raimon Grau
 ;; Copyright (C) 2013-2014  Toni Reina
-;; Copyright (C) 2020       esac
+;; Copyright (C) 2020       lambdart
 ;;
 ;; Author: Raimon Grau <raimonster@gmail.com>
 ;;         Toni Reina  <areina0@gmail.com>
 ;;         Bryan Gilbert <bryan@bryan.sh>
-;;         esac <esac-io@tutanota.com>
-;;
-;; Version: Alpha 0.0.3
+;;         lambdart <lambdart@protonmail.com>
+;; Maintainer: lambdart
+;; Version: Alpha 0.0.1
 ;; Keywords: dash, docs, documentation
-;; URL: https://github.com/esac-io/dash-docs
+;; URL: https://github.com/lambdart/dash-docs
 ;;
 ;; This file is NOT part of GNU Emacs.
 ;;
@@ -670,7 +670,8 @@ Report an error unless a valid docset is selected."
 
 (defun dash-docs-install-docset-from-file (docset-temp-file)
   "Extract the content of DOCSET-TEMP-FILE.
-gMove it to `dash-docs-docsets-dir' and activate the docset."
+Move it to `dash-docs-docsets-dir' and
+activate the docset."
   ;; maps docset temporary path parameter
   (interactive
    (list (car (find-file-read-args "Docset Archive: " t))))

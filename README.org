@@ -1,5 +1,5 @@
-#+AUTHOR: esac
-#+EMAIL: esac-io@tutanota.com
+#+AUTHOR: lambdart
+#+EMAIL: lambdart@protonmail.com
 #+DESCRIPTION: Elisp interface to query and show documenation using dash!
 #+KEYWORDS: emacs, dash, dash docs, documentation
 #+LANGUAGE: en
@@ -36,7 +36,7 @@
 
    #+BEGIN_SRC sh
 
-   $ git clone https://github.com/esac-io/dash-docs ~/.emacs.d/site-elisp/dash-docs
+   $ git clone https://github.com/lambdart/dash-docs ~/.emacs.d/site-elisp/dash-docs
 
    #+END_SRC
 
