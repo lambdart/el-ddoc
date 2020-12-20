@@ -4,7 +4,7 @@
 #+KEYWORDS: emacs, dash, dash docs, documentation
 #+LANGUAGE: en
 
-* Dash-Docs
+* Introduction
 
   This package provides an =Elisp= interface to query
   and show documentation using [[http://www.kapeli.com/dash][Dash]] docsets.
@@ -32,11 +32,11 @@
 * Installation
 ** Manually
 
-   Clone =dash-docs= repository to an arbitrary location:
+   Clone =ddoc-el= repository to an arbitrary location:
 
    #+BEGIN_SRC sh
 
-   $ git clone https://github.com/lambdart/dash-docs ~/.emacs.d/site-elisp/dash-docs
+   $ git clone https://github.com/lambdart/ddoc-el ~/.emacs.d/site-elisp/ddoc
 
    #+END_SRC
 
@@ -46,16 +46,16 @@
    #+BEGIN_SRC emacs-lisp
 
    ;; add to load-path
-   (add-to-list 'load-path "/replace/me/to/dash-docs/full/path")
+   (add-to-list 'load-path "/replace/me/to/ddoc/full/path")
 
-   ;; load dash-docs feature
-   (require 'dash-docs nil t)
+   ;; load ddoc feature
+   (require 'ddoc nil t)
 
    #+END_SRC
 
    - Note: For a more dynamic approach:
      - =M-x load-file RET=
-     - =M-x load-library RET dash-docs RET=
+     - =M-x load-library RET ddoc RET=
 
 ** Compile
 
@@ -65,7 +65,7 @@
 
    #+BEGIN_SRC sh
 
-   [at-dash-docs-root-directory]$ make
+   [at-ddoc-root-directory]$ make
 
    #+END_SRC
 
@@ -73,12 +73,12 @@
 
    Dash-docs uses the same docsets as [[http://www.kapeli.com/dash][Dash]].
 
-   You can install them with =M-x dash-docs-install-docset= for the
-   official docsets or =M-x dash-docs-install-user-docset= for user
+   You can install them with =M-x ddoc-install-docset= for the
+   official docsets or =M-x ddoc-install-user-docset= for user
    contributed docsets (experimental).
 
    To install a docset from a file in your drive you can use
-   =M-x dash-docs-install-docset-from-file=.
+   =M-x ddoc-install-docset-from-file=.
 
    That function takes as input a ~tgz~ file that you obtained,
    starting from a folder named =<docset-name>.docset=, with the command:
@@ -93,17 +93,17 @@
 
 * Customize
 
-  - =dash-docs-docsets-path= :: is the prefix for your docsets,
+  - =ddoc-docsets-path= :: is the prefix for your docsets,
     defaults to =~/.docsets=.
 
-  - =dash-docs-min-length= :: tells dash-docs from which length to start
+  - =ddoc-min-length= :: tells ddoc from which length to start
     searching, defaults to =3=.
 
-  - =dash-docs-browser-func= :: is a function to encapsulate the way to browse
+  - =ddoc-browser-func= :: is a function to encapsulate the way to browse
     Dash' docsets, defaults to =browse-url=. For example, if you want to use eww to
-    browse your docsets, you can do: =(setq dash-docs-browser-func 'eww)=.
+    browse your docsets, you can do: =(setq ddoc-browser-func 'eww)=.
 
-  When =dash-docs-enable-debugging= is non-nil stderr from sqlite queries is
+  When =ddoc-enable-debugging= is non-nil stderr from sqlite queries is
   captured and displayed in a buffer. The default value is =t=. Setting this
   to =nil= may speed up queries on some machines (capturing stderr requires
   the creation and deletion of a temporary file for each query).
@@ -111,15 +111,14 @@
 * Variables
 ** Common
 
-   - =dash-docs-common-docsets= :: is a list that should contain the
+   - =ddoc-common-docsets= :: is a list that should contain the
      docsets to be active always. In all buffers.
 
 ** Local
 
    Different subsets of docsets can be activated depending on the
    buffer. For the moment (it may change in the future) we decided it's a
-   plain local variable you should setup for every different
-   filetype.
+   plain local variable you should setup for every different file type.
 
    This way you can also do fancier things like project-wise
    docsets sets.
@@ -128,7 +127,7 @@
 
    (defun go-set-docset ()
      (interactive)
-     (setq-local dash-docs-docsets '("Go")))
+     (setq-local ddoc-docsets '("Go")))
 
    ;; add hook
    (add-hook 'go-mode-hook 'go-set-docset)
@@ -138,16 +137,12 @@
 * FAQ
 
   - Does it works in MacOS/Windows?
-    Duno, and I don't care.
+    Duno...
 
   - Does it works in Linux/BSDs?
-    YES!
+    Yeap!
 
-  - I get nil for every search I do!
-    Make sure you don't have SQLite3 .mode column but .mode list
-    (the default). Check your ~.sqliterc~.
-
-  - When selecting an item in dash-docs, no browser
+  - When selecting an item in ddoc, no browser
     lookup occurs with =Firefox= and =Emacs= >= 24.4: \\
 
     Try: \\
@@ -162,17 +157,21 @@
     (customize-set-variable 'browse-url-generic-program "/path/to/firefox")
 
     ;; customize default function to browse Dash’s docsets
-    (customize-set-variable 'dash-docs-browser-func 'browse-url-generic)
+    (customize-set-variable 'ddoc-browser-func 'browse-url-generic)
     #+END_SRC
 
 * References
 
-  - https://github.com/dash-docs-el/dash-docs
+  1. https://kapeli.com/dash
+  2. https://github.com/dash-docs-el/dash-docs
+  3. https://www.gnu.org/software/emacs/manual/html_node/elisp/index.html
 
+* LICENSE
+  MIT
 * EOF
 
   #+BEGIN_SRC
-  Documentation is like sex: when it is good, it is very, very good;
-  and when it is bad, it is better than nothing.
+  Computer science is no more about computers
+  than astronomy is about telescopes.
   #+END_SRC
-  | Dick Brandon |
+  | Edsger Dijkstra |
