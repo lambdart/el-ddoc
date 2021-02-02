@@ -63,7 +63,13 @@ path. You can use `expand-file-name' function for that."
   :type 'string
   :group 'ddoc)
 
-(defcustom ddoc-unofficial-url
+(defcustom ddoc-json-url
+  "https://api.github.com/repos/Kapeli/feeds/contents"
+  "Official docsets URL."
+  :type 'string
+  :group 'ddoc)
+
+(defcustom ddoc-contrib-json-url
   "https://dashes-to-dashes.herokuapp.com/docsets/contrib"
   "Unofficial (user) docsets URL."
   :type 'string
@@ -82,7 +88,7 @@ how long to wait for a response before giving up."
   :type 'integer
   :group 'ddoc)
 
-(defcustom ddoc-candidate-format "%d %n (%t)"
+(defcustom ddoc-completion-format "%d %n (%t)"
   "Format of the displayed candidates.
 Available formats are
    %d - docset name
@@ -117,21 +123,17 @@ These docsets are not available to install."
   :type 'list
   :group 'ddoc)
 
-(defcustom ddoc-index-file
-  (expand-file-name "cache/ddoc.index" user-emacs-directory)
+(defcustom ddoc-cache-index-file
+  (expand-file-name "cache/ddoc-cache-index" user-emacs-directory)
   "Official (cache) index file."
   :type 'string
   :group 'ddoc)
 
-(defcustom ddoc-user-index-file
-  (expand-file-name "cache/ddoc-user.index" user-emacs-directory)
+(defcustom ddoc-cache-contrib-index-file
+  (expand-file-name "cache/ddoc-cache-contrib-index" user-emacs-directory)
   "Unofficial (user cache) index file."
   :type 'string
   :group 'ddoc)
-
-(defvar ddoc-docsets-url
-  "https://api.github.com/repos/Kapeli/feeds/contents"
-  "Official docsets URL.")
 
 (defvar ddoc-docsets-feed-url
   "https://raw.github.com/Kapeli/feeds/master"
@@ -145,22 +147,22 @@ These docsets are not available to install."
   "SELECT ty.ZTYPENAME, t.ZTOKENNAME, f.ZPATH, m.ZANCHOR FROM ZTOKEN t, ZTOKENTYPE ty, ZFILEPATH f, ZTOKENMETAINFORMATION m WHERE ty.Z_PK = t.ZTOKENTYPE AND f.Z_PK = m.ZFILE AND m.ZTOKEN = t.Z_PK AND %s ORDER BY LENGTH(t.ZTOKENNAME), LOWER(t.ZTOKENNAME) LIMIT 1000"
   "ZDASH default sql query.")
 
-(defvar ddoc-type-sql-query
+(defvar ddoc-sql-type-query
   "SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1"
   "Default type sqlite3 query.")
 
 (defvar ddoc-common-docsets '()
   "List of Docsets to search active by default.")
 
-(defvar ddoc--connections nil
+(defvar ddoc-open-connections nil
   "List of conses like (\"Go\" . connection).")
 
 (defvar ddoc--internal-vars
-  '(ddoc--connections
+  '(ddoc-open-connections
     ddoc-common-docsets)
   "List of ddoc internal variables.")
 
-(defvar ddoc-message-prefix "[Dash-docs]: "
+(defvar ddoc-message-prefix "[DDoc]: "
   "Internal ddoc message prefix.")
 
 (defvar ddoc-mode nil
@@ -168,15 +170,13 @@ These docsets are not available to install."
 Note: set this variable directly has no effect, use
 `turn-on-dash-doc-mode' stead.")
 
-(defvar ddoc-json-cache-file
-  (expand-file-name "cache/ddoc-official.json"
-                    user-emacs-directory)
-  "Official json cache file.")
+(defvar ddoc-cache-json-file
+  (expand-file-name "cache/ddoc-cache.json" user-emacs-directory)
+  "Official JSON cache file.")
 
-(defvar ddoc-json-user-cache-file
-  (expand-file-name "cache/ddoc-unofficial.json"
-                    user-emacs-directory)
-  "Unofficial json cache file.")
+(defvar ddoc-cache-json-contrib-file
+  (expand-file-name "cache/ddoc-cache-contrib.json" user-emacs-directory)
+  "Contributions JSON cache file.")
 
 (defmacro ddoc--message (fmt &rest args)
   "Just an internal `message' helper."
@@ -210,35 +210,16 @@ Note: set this variable directly has no effect, use
         (and (y-or-n-p prompt))
         (mkdir dir t))))
 
-(defun ddoc-docset-path (docset-name)
-  "Return DOCSET-NAME full path."
-  (let* (;; set directory
-         (docset-dir (expand-file-name ddoc-docsets-dir))
-         ;; format docset path
-         (docset-path (format "%s/%s.docset" docset-dir docset-name)))
-    ;; verify if the path exists
-    (if (file-directory-p docset-path) docset-path nil)))
-
-(defun ddoc-docset-db-path (docset-name)
-  "Return database DOCSET path."
-  (let ((docset-path (ddoc-docset-path docset-name)))
-    ;; verify docset path
-    (if docset-path
-        (expand-file-name "Contents/Resources/docSet.dsidx" docset-path)
-      ;; debug message
-      (ddoc--message "missing docset '%s'" docset-name)
-      ;; return nil
-      nil)))
-
-(defun ddoc-parse-sql-results (sql-result-string)
+(defun ddoc-sql-parse-results (sql-result-string)
   "Parse SQL-RESULT-STRING splitting it by newline and '|' chars."
-  (mapcar (lambda (string) (split-string string "|" t))
+  (mapcar (lambda (string)
+            (split-string string "|" t))
           (split-string sql-result-string "\n" t)))
 
-(defun ddoc-exec-query (db-path query)
+(defun ddoc-sql-exec-query (db-path query)
   "Execute QUERY in the db located at DB-PATH and parse the results.
 If there are errors, print them in `ddoc--debug-buffer'."
-  (ddoc-parse-sql-results
+  (ddoc-sql-parse-results
    (with-output-to-string
      (let ((error-file (when ddoc-sql-debug-flag
                          (make-temp-file "ddoc-errors-file"))))
@@ -251,24 +232,14 @@ If there are errors, print them in `ddoc--debug-buffer'."
              (with-current-buffer (ddoc--debug-buffer)
                (let ((pos-from-end (- (point-max) (point))))
                  (or (bobp) (insert "\f\n"))
-                 ;; Do no formatting while reading error file,
+                 ;; do no formatting while reading error file,
                  ;; because that can run a shell command, and we
                  ;; don't want that to cause an infinite recursion.
                  (format-insert-file error-file nil)
-                 ;; Put point after the inserted errors.
+                 ;; put point after the inserted errors
                  (goto-char (- (point-max) pos-from-end)))
                (display-buffer (current-buffer))))
          (delete-file error-file))))))
-
-(defun ddoc-docset-type (db-path)
-  "Return the type of the docset based in db schema.
-Possible values are \"DASH\" and \"ZDASH\".
-The Argument DB-PATH should be a string with the sqlite db path."
-  (let ((query ddoc-type-sql-query))
-    (if (member "searchIndex"
-                (car (ddoc-exec-query db-path query)))
-        "DASH"
-      "ZDASH")))
 
 (defun ddoc-sql-compose-like (column pattern)
   "Return a query fragment for a sql where clause.
@@ -280,19 +251,18 @@ by whitespace and using like sql operator."
                      (split-string pattern " "))))
     (format "%s" (mapconcat 'identity conditions " AND "))))
 
-(defun ddoc-compose-sql-query (docset-type pattern)
+(defun ddoc-sql-compose-query (docset-type pattern)
   "Return a SQL query to search documentation in dash docsets.
 A different query is returned depending on DOCSET-TYPE.
 PATTERN is used to compose the SQL WHERE clause."
-  (let ((compose-select-query-func
+  (let ((compose-select-query-function
          (cdr (assoc (intern docset-type)
                      ddoc--sql-queries))))
-    (when compose-select-query-func
-      (funcall compose-select-query-func pattern))))
+    (and compose-select-query-function
+         (funcall compose-select-query-function pattern))))
 
 (defun ddoc-sql-search (docset pattern)
   "Search for and PATTERN patter using the select DOCSET.
-
 Return a list of db results.
 
 Ex:
@@ -305,13 +275,13 @@ Ex:
          ;; set docset database path
          (db-path (cadr docset))
          ;; set the sql query to be executed
-         (query (ddoc-compose-sql-query docset-type pattern)))
+         (query (ddoc-sql-compose-query docset-type pattern)))
     ;; execute the query
-    (ddoc-exec-query db-path query)))
+    (ddoc-sql-exec-query db-path query)))
 
-(defun ddoc--format-row (connection row)
-  "Format candidate (ROW) using its CONNECTION."
-  (cons (format-spec ddoc-candidate-format
+(defun ddoc-sql-format-row (connection row)
+  "Format ROW returned by the SQL CONNECTION."
+  (cons (format-spec ddoc-completion-format
                      (list (cons ?d (cl-first connection))
                            (cons ?n (cl-second row))
                            (cons ?t (cl-first row))
@@ -321,33 +291,57 @@ Ex:
                                      (cl-third row)))))
         (list (car connection) row)))
 
-(defun ddoc-search-docset-entry (connection pattern)
+(defun ddoc-sql-search-docset-entry (connection pattern)
   "Search PATTERN in CONNECTION, return a list of formatted rows."
   (cl-loop for row in (ddoc-sql-search connection pattern)
-           collect (ddoc--format-row connection row)))
+           collect (ddoc-sql-format-row connection row)))
 
-(defun ddoc-search-docset-entries (pattern)
+(defun ddoc-sql-search-docset-entries (pattern)
   "Search a PATTERN in all available connected docsets."
   (cl-loop for connection in (ddoc-search-connections pattern)
-           appending (ddoc-search-docset-entry connection pattern)))
+           appending (ddoc-sql-search-docset-entry connection pattern)))
 
 (defun ddoc-buffer-local-docsets ()
   "Get the docsets configured for the current buffer."
   (or (and (boundp 'ddoc-docsets) ddoc-docsets) '()))
 
-(defun ddoc-add-connection (docset)
-  "Add DOCSET connection to `ddoc--connections'."
-  ;; verify if docset is already present
-  (when (not (assoc docset ddoc--connections))
-    ;; connection parameters
-    (let ((db-path (ddoc-docset-db-path docset)))
-      (when db-path
-        (let* ((type (ddoc-docset-type db-path))
-               (connection (list docset db-path type)))
-          ;; add connection to ddoc--connections
-          (push connection ddoc--connections))))))
+(defun ddoc-docset-path (name)
+  "Return docset NAME full path."
+  (let* ((docset-dir (expand-file-name ddoc-docsets-dir))
+         (docset-path (format "%s/%s.docset" docset-dir name)))
+    ;; verify if the path exists
+    (and (file-directory-p docset-path) docset-path)))
 
-(defun ddoc-add-buffer-local-connections ()
+(defun ddoc-docset-db-path (docset)
+  "Return DOCSET database path."
+  (let ((docset-path (ddoc-docset-path docset)))
+    (and docset-path
+         (expand-file-name "Contents/Resources/docSet.dsidx"
+                           docset-path))))
+
+(defun ddoc-docset-type (db-path)
+  "Return DASH or ZDASH the type of the docset based in the db schema.
+Possible return values are \"DASH\" and \"ZDASH\".
+The Argument DB-PATH should be a string with the sqlite db path."
+  (if (member "searchIndex"
+              (car (ddoc-sql-exec-query db-path
+                                        ddoc-sql-type-query)))
+      "DASH"
+    "ZDASH"))
+
+(defun ddoc-add-connection (docset)
+  "Add DOCSET connection to `ddoc-open-connections'."
+  ;; verify if docset is already present
+  (and (not (assoc docset ddoc-open-connections))
+       ;; connection parameters
+       (let ((db-path (ddoc-docset-db-path docset)))
+         (and db-path
+              (let ((type (ddoc-docset-type db-path)))
+                ;; add connection to ddoc-open-connections
+                (push (list docset db-path type)
+                      ddoc-open-connections))))))
+
+(defun ddoc-add-local-connections ()
   "Add ddoc buffer local connections."
   (dolist (docset (ddoc-buffer-local-docsets))
     (ddoc-add-connection docset)))
@@ -360,7 +354,7 @@ Ex:
     ;; get unique 'connections' associated with the docsets
     (delq nil
           (mapcar (lambda (docset)
-                    (assoc docset ddoc--connections))
+                    (assoc docset ddoc-open-connections))
                   docsets))))
 
 (defun ddoc-search-connections (pattern)
@@ -369,62 +363,50 @@ If PATTERN starts with the name of a docset,
 narrow the used connections to just that one."
   (let ((connections (ddoc-connections)))
     ;; if no pattern just return all available connections
-    (if (equal pattern "") connections
+    (if (or (equal pattern "")
+            (equal pattern nil))
+        connections
       ;; return connection filter by pattern: docset name
       (cl-loop for connection in connections
-               if (string-prefix-p (car connection)
-                                   pattern t)
+               if (string-prefix-p (car connection) pattern t)
                return (list connection)))))
 
 (defun ddoc-del-connection (docset)
-  "Remove DOCSET connection from `ddoc--connections'."
-  (let*  ((connections (ddoc-connections))
-          (connection (assoc docset connections)))
-    (when (member connection connections)
-      (setq ddoc--connections
-            (delq connection connections)))))
+  "Remove DOCSET connection from `ddoc-open-connections'."
+  (let ((connections (ddoc-connections)))
+    (setq ddoc-open-connections
+          (delq (assoc docset connections) connections))))
 
 (defun ddoc--write-file (contents file)
   "Write CONTENTS in the target FILE."
   (with-temp-file file
-    ;; insert file contents in the file buffer (implicit)
-    (prin1 contents (current-buffer)))
-  ;; return nothing
-  nil)
+    (prin1 contents (current-buffer))))
 
 (defun ddoc--read-file (file)
-  "Return FILE contents."
+  "Read FILE contents, i.e, return the Lisp Object representation."
   (when (file-exists-p file)
-    (let ((contents (with-temp-buffer
-                      (insert-file-contents file)
-                      (buffer-substring-no-properties (point-min)
-                                                      (point-max)))))
-      (read contents))))
+    (read (with-temp-buffer
+            (insert-file-contents-literally file)
+            (buffer-substring-no-properties (point-min)
+                                            (point-max))))))
 
-(defun ddoc-fetch-json (url file)
-  "Copy JSON contents to FILE from the target URL."
-  (let ((json-contents nil))
-    ;; copy url json to cache file
-    (url-copy-file url file t nil)
-    ;; switch/case equivalent
-    (cond
-     ;; verify if file exists
-     ((not (file-exists-p file))
-      ;; debug message
-      (ddoc--message "was not possible to retrieve json file")
-      ;; return nil
-      nil)
-     ;; default, read json contents
-     (t
-      (setq json-contents
-            (with-temp-buffer
-              (insert-file-contents-literally file)
-              (json-read)))))
-    ;; return json content
-    json-contents))
+(defun ddoc--json-file-contents (file)
+  "Return FILE contents literally."
+  (and (file-exists-p file)
+       (with-temp-buffer
+         (insert-file-contents-literally file)
+         (json-read))))
 
-(defun ddoc--parse-contrib-index (json)
-  "Parse index JSON elements."
+(defun ddoc--fetch-json (url file)
+  "Copy json contents located at URL to a target FILE.
+Return json file contents."
+  ;; copy url file
+  (url-copy-file url file t nil)
+  ;; read json file contents
+  (ddoc--json-file-contents file))
+
+(defun ddoc--contrib-index-list (json)
+  "Parse the unofficial docsets index list from the target JSON."
   (delq nil
         (mapcar (lambda (element)
                   (let* ((name (assoc-default 'name element))
@@ -432,65 +414,60 @@ narrow the used connections to just that one."
                     (list name archive)))
                 json)))
 
-(defun ddoc--parse-index (json)
-  "Parse index JSON elements."
+(defun ddoc--index-list (json)
+  "Parse the official docsets index list from the target JSON."
   (delq nil
         (mapcar (lambda (element)
                   (let* ((name (assoc-default 'name element))
                          (ext (file-name-extension name)))
-                    (when (equal ext "xml")
-                      (list name))))
+                    ;; filter by the extension
+                    (and (equal ext "xml")
+                         (list (replace-regexp-in-string ".xml" "" name)))))
                 json)))
 
-(defun ddoc-setup-index ()
-  "Setup the official docset's index."
+(defun ddoc-read-docsets-index (json-url
+                                cache-json-file
+                                cache-index-file
+                                &optional
+                                parse-list-function)
+  "Read the docsets index list.
+JSON-URL, json URL location.
+CACHE-JSON-FILE, json file were the retrieved contents will be saved.
+CACHE-INDEX-FILE, cache index list file, were the index list will be saved.
+PARSE-LIST-FUNCTION, function that will parse the index list,
+from json to list."
+
   ;; verify if file already exists
-  (when (not (file-exists-p ddoc-json-cache-file))
+  (if (file-exists-p cache-index-file)
+      (ddoc--read-file cache-index-file)
     ;; set json file and parse the index
-    (let* ((json (ddoc-fetch-json ddoc-docsets-url
-                                       ddoc-json-cache-file))
-           (index (ddoc--parse-index json)))
+    (let* ((json (if (file-exists-p cache-json-file)
+                     (ddoc--json-file-contents cache-json-file)
+                   (ddoc--fetch-json json-url cache-json-file)))
+           (parse-function (or parse-list-function 'ddoc--index-list))
+           (index (funcall parse-function json)))
       ;; write the file unless we don't have any parsed index
-      (unless (not index)
-        ;; write json to the index file
-        (ddoc--write-file index ddoc-index-file)))))
-
-(defun ddoc-setup-unofficial-index ()
-  "Setup unofficial contrib index."
-  ;; verify if file already exists
-  (when (not (file-exists-p ddoc-json-user-cache-file))
-    ;; set json file and parse the index
-    (let* ((json (ddoc-fetch-json ddoc-unofficial-url
-                                       ddoc-json-user-cache-file))
-           (index (ddoc--parse-contrib-index json)))
-      ;; write json to the index file
-      (ddoc--write-file index ddoc-user-index-file))))
-
-(defun ddoc-unofficial-docsets ()
-  "Return a list of lists with docsets contributed by users.
-The first element is the docset's name second the docset's archive url."
-  (let ((docsets (ddoc--read-file ddoc-user-index-file)))
-    ;; parse docsets list
-    (mapcar (lambda (docset)
-              (car docset))
-            docsets)))
+      (and index (ddoc--write-file index cache-index-file)))))
 
 (defun ddoc-official-docsets ()
   "Return a list of official docsets."
-  (let ((index (ddoc--read-file ddoc-index-file))
-        (docsets nil))
-    ;; for each docset in index clean the ".xml" substring
-    (dolist (docset index)
-      (push (replace-regexp-in-string ".xml" "" (car docset)) docsets))
-    ;; return docsets
-    docsets))
+  (ddoc-read-docsets-index ddoc-json-url
+                           ddoc-cache-json-file
+                           ddoc-cache-index-file))
 
-(defun ddoc-extract-archive (docset-temp-file)
-  "Extract DOCSET-TEMP-FILE to `ddoc-docsets-dir'.
+(defun ddoc-contrib-docsets ()
+  "Return a list of contrib docsets."
+  (ddoc-read-docsets-index ddoc-contrib-json-url
+                           ddoc-cache-json-contrib-file
+                           ddoc-cache-contrib-index-file
+                           'ddoc--contrib-index-list))
+
+(defun ddoc-extract-docset-archive (docset-archive)
+  "Extract DOCSET-ARCHIVE to `ddoc-docsets-dir'.
 Return the folder that was newly extracted."
   (with-temp-buffer
     (let* ((program (list "tar" nil t nil))
-           (args (list "xfv" docset-temp-file "-C" ddoc-docsets-dir))
+           (args (list "xfv" docset-archive "-C" ddoc-docsets-dir))
            (result (apply #'call-process (append program args nil)))
            (folder nil))
       (cond
@@ -499,15 +476,15 @@ Return the folder that was newly extracted."
              ;; TODO: Adjust to proper text. Also requires correct locale.
              (search-backward "too long" nil t))
         ;; signals an error message
-        (error "Failed extract %s to %s."
-               docset-temp-file
+        (error "Failed extract %s to %s"
+               docset-archive
                ddoc-docsets-dir))
        ;; verify call-process result
        ((not (equal result 0))
         ;; signals an error message
         (error "Error %s, failed to extract %s to %s."
                result
-               docset-temp-file
+               docset-archive
                ddoc-docsets-dir)))
       ;; got the point
       (goto-char (point-max))
@@ -535,7 +512,7 @@ Return the folder that was newly extracted."
                 ;; destroy MIME parts
                 (mm-destroy-parts handle)
                 ;; extract docset
-                (ddoc-extract-archive file)))
+                (ddoc-extract-docset-archive file)))
             ;; temporary archive file
             `(nil ,archive)))
 
@@ -576,7 +553,7 @@ Return the folder that was newly extracted."
     (ddoc-install-docset docset)))
 
 (defun ddoc-parse-archive-url (xlm-file)
-  "Parse the XML-FILE feed and return the first url."
+  "Parse the XML-FILE feed url."
   (let* ((xml (xml-parse-file xlm-file))
          (urls (car xml))
          (url (xml-get-children urls 'url)))
@@ -590,20 +567,19 @@ If the search starts with the name of the docset, ignore it."
     ;; remove string in pattern
     (replace-regexp-in-string regexp "" pattern)))
 
-(defun ddoc-compose-url (name filename &optional anchor)
-  "Compose the final URL.
-Either a file:/// URL joining docset NAME, FILENAME & ANCHOR
-or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
+(defun ddoc-parse-url (name filename &optional anchor)
+  "Parse URL.
+Either a file:///URL joining docset NAME, FILENAME & ANCHOR
+or a http(s)://URL formed as-is if FILENAME is equal to HTTP(S)."
   (let* ((anchor (if anchor (format "#%s" anchor) ""))
-         (filename (format "%s%s" filename anchor)))
+         (url (format "%s%s" filename anchor)))
     ;; verify url type
-    (if (string-match-p "^https?://" filename)
-        filename
-      ;; return file:///URL
+    (if (string-match-p "^https?://" url) url
+      ;; return file:///FILE-PATH
       (concat "file:///"
               (expand-file-name "Contents/Resources/Documents/"
                                 (ddoc-docset-path name))
-              filename))))
+              url))))
 
 (defun ddoc-split-docset (docset)
   "Split DOCSET elements, return (NAME FILENAME ANCHOR)."
@@ -628,7 +604,7 @@ or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
   "Call to `browse-url' after parse the chosen DOCSET."
   ;; split elements and compose final url
   (let* ((elts (ddoc-split-docset docset))
-         (url (apply 'ddoc-compose-url elts)))
+         (url (apply 'ddoc-parse-url elts)))
     (prin1 elts)
     ;; finally invoke browser function (implicit: open the file)
     ;; in the chosen browser
@@ -646,7 +622,7 @@ or a http(s):// URL formed as-is if FILENAME is equal to HTTP(S)."
 
 (defun ddoc-docsets-collection ()
   "Return all available connected docsets entries."
-  (ddoc-search-docset-entries ""))
+  (ddoc-sql-search-docset-entries ""))
 
 (defun ddoc-minibuffer-read (prompt choices)
   "Read from the `minibuffer' using PROMPT and CHOICES as candidates.
@@ -666,11 +642,11 @@ Report an error unless a valid docset is selected."
   "Clean all connections interactively."
   (interactive)
   ;; clean connection
-  (setq ddoc--connections '())
+  (setq ddoc-open-connections '())
   ;; clean activated docsets
   (setq ddoc-common-docsets '()))
 
-(defun ddoc-install-docset-from-file (docset-temp-file)
+(defun ddoc-install-docset-from-file (docset-archive)
   "Extract the content of DOCSET-TEMP-FILE.
 Move it to `ddoc-docsets-dir' and
 activate the docset."
@@ -678,20 +654,20 @@ activate the docset."
   (interactive
    (list (car (find-file-read-args "Docset Archive: " t))))
   ;; extract the docset
-  (let ((folder (ddoc-extract-archive docset-temp-file)))
+  (let ((folder (ddoc-extract-docset-archive docset-archive)))
     ;; debug message
     (ddoc--message "docset installed at %s" folder)))
 
-(defun ddoc-install-unofficial-docset (docset-name)
+(defun ddoc-install-contrib-docset (docset-name)
   "Download an unofficial docset with specified DOCSET-NAME."
   ;; maps docset name parameter
   (interactive
    (list (ddoc-minibuffer-read "Install docset"
-                                    (ddoc-unofficial-docsets))))
+                               (ddoc-contrib-docsets))))
   ;; set url
   (let ((url (car (assoc-default docset-name
                                  (ddoc--read-file
-                                  ddoc-user-index-file)))))
+                                  ddoc-cache-contrib-index-file)))))
     ;; install docset (fetch and extract) asynchronous
     (ddoc--install-docset url docset-name)))
 
@@ -726,7 +702,7 @@ If called interactively prompts for the docset name."
   (interactive
    (list
     (ddoc-minibuffer-read "Activate docset"
-                               (ddoc-installed-docsets))))
+                          (ddoc-installed-docsets))))
   ;; add docset to docsets list
   (push docset ddoc-common-docsets)
   ;; start connection
@@ -737,9 +713,7 @@ If called interactively prompts for the docset name."
 If called interactively prompts for the docset name."
   ;; maps docset parameter
   (interactive
-   (list
-    (ddoc-minibuffer-read "Deactivate docset"
-                               ddoc-common-docsets)))
+   (list (ddoc-minibuffer-read "Deactivate docset" ddoc-common-docsets)))
   ;; delete its connection
   (ddoc-del-connection docset)
   ;; remove docset from common docsets
@@ -761,6 +735,7 @@ If called interactively prompts for the docset name."
     ;; browse url a.k.a find file
     (ddoc-browse-url docset)))
 
+;;;###autoload
 (defun ddoc-echo-mode-state ()
   "Show ddoc minor mode state: on/off."
   (interactive)
@@ -785,10 +760,6 @@ and disables it otherwise."
    (ddoc-mode
     ;; create docsets default directory (if necessary)
     (ddoc--created-dir)
-    ;; setup docsets official index file (if necessary)
-    (ddoc-setup-index)
-    ;; setup docsets unofficial (user) index file (if necessary)
-    (ddoc-setup-unofficial-index)
     ;; set dash docs mode indicator to true
     (setq ddoc-mode t))
    (t
