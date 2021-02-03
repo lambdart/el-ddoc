@@ -582,10 +582,9 @@ or a http(s)://URL formed as-is if FILENAME is equal to HTTP(S)."
 (defun ddoc-browse-url (docset)
   "Call to `browse-url' after parse the chosen DOCSET."
   ;; split elements and compose final url
-  (let* ((elts (ddoc-split-docset docset))
-         (url (apply 'ddoc-parse-url elts)))
-    ;; finally invoke browser function (implicit: open the file)
-    ;; in the chosen browser
+  (let ((url (apply 'ddoc-parse-url (ddoc-split-docset docset))))
+    ;; finally invoke browser function
+    ;; implicit: open the html file buffer
     (funcall ddoc-browser-func url)))
 
 (defun ddoc--debug-buffer ()
@@ -627,10 +626,10 @@ Report an error unless a valid docset is selected."
 Move it to `ddoc-docsets-dir' and
 activate the docset."
   ;; maps docset temporary path parameter
-  (interactive (list (read-file-name "Docset Archive: " nil nil t)))
+  (interactive (list (read-file-name "Docset Archive: "
+                                     nil nil t)))
   ;; extract/install the docset
-  (ddoc-extract-docset-archive docset-archive
-                               ddoc-docsets-dir))
+  (ddoc-extract-docset-archive docset-archive ddoc-docsets-dir))
 
 (defun ddoc-install-contrib-docset (docset-name)
   "Download an unofficial docset with specified DOCSET-NAME."
@@ -659,8 +658,7 @@ activate the docset."
     ;; copy feed xml
     (url-copy-file feed-url feed-tmp-path t)
     ;; install docset after parsing the feed url
-    (ddoc--install-docset (ddoc-parse-archive-url feed-tmp-path)
-                          docset-name)))
+    (ddoc--install-docset (ddoc-parse-archive-url feed-tmp-path) docset-name)))
 
 (defun ddoc-activate-docset (docset)
   "Activate a DOCSET, i.e, make a connection to its database.
