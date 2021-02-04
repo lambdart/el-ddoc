@@ -153,7 +153,7 @@ These docsets are not available to install."
   "SELECT name FROM sqlite_master WHERE type = 'table' LIMIT 1"
   "Default type sqlite3 query.")
 
-(defvar ddoc-common-docsets '()
+(defvar ddoc-activated-docsets '()
   "List of Docsets to search active by default.")
 
 (defvar ddoc-open-connections nil
@@ -161,7 +161,7 @@ These docsets are not available to install."
 
 (defvar ddoc--internal-vars
   '(ddoc-open-connections
-    ddoc-common-docsets)
+    ddoc-activated-docsets)
   "List of ddoc internal variables.")
 
 (defvar ddoc-message-prefix "[DDoc]: "
@@ -335,14 +335,13 @@ The Argument DB-PATH should be a string with the sqlite db path."
 (defun ddoc-add-connection (docset)
   "Add DOCSET connection to `ddoc-open-connections'."
   ;; verify if docset is already present
-  (and (not (assoc docset ddoc-open-connections))
-       ;; connection parameters
-       (let ((db-path (ddoc-docset-db-path docset)))
-         (and db-path
-              (let ((type (ddoc-docset-type db-path)))
-                ;; add connection to ddoc-open-connections
-                (push (list docset db-path type)
-                      ddoc-open-connections))))))
+  (or (assoc docset ddoc-open-connections)
+      ;; connection parameters
+      (let ((db-path (ddoc-docset-db-path docset)))
+        (and db-path
+             (let ((type (ddoc-docset-type db-path)))
+               ;; add connection to ddoc-open-connections
+               (push (list docset db-path type) ddoc-open-connections))))))
 
 (defun ddoc-add-local-connections ()
   "Add ddoc buffer local connections."
@@ -353,7 +352,7 @@ The Argument DB-PATH should be a string with the sqlite db path."
   "Return available connections."
   (let ((docsets (ddoc-buffer-local-docsets)))
     ;; append local docsets with common ones
-    (setq docsets (append docsets ddoc-common-docsets))
+    (setq docsets (append docsets ddoc-activated-docsets))
     ;; get unique 'connections' associated with the docsets
     (delq nil
           (mapcar (lambda (docset)
@@ -530,8 +529,7 @@ Return the folder that was newly extracted."
 
 (defun ddoc-docset-installed-p (docset)
   "Return non-nil if DOCSET is installed."
-  (member (replace-regexp-in-string "_" " " docset)
-          (ddoc-installed-docsets)))
+  (member docset (ddoc-installed-docsets)))
 
 (defun ddoc-ensure-docset-installed (docset)
   "Install DOCSET if it is not currently installed."
@@ -605,21 +603,21 @@ or a http(s)://URL formed as-is if FILENAME is equal to HTTP(S)."
   "Read from the `minibuffer' using PROMPT and CHOICES as candidates.
 Report an error unless a valid docset is selected."
   (let ((completion-ignore-case t))
-    (list (completing-read (format "%s (%s): " prompt (car choices))
-                           choices nil t nil nil))))
+    (list (and choices
+               (completing-read (format "%s (%s): " prompt (car choices))
+                                choices nil t)))))
 
-(defun ddoc-del-common-docset (docset)
-  "Delete DOCSET from `ddoc-common-docsets'."
+(defun ddoc-del-activated-docset (docset)
+  "Delete DOCSET from `ddoc-activated-docsets'."
   ;; delete docset from common docsets list
-  (or (member docset ddoc-common-docsets)
-      (setq ddoc-common-docsets
-            (delete docset ddoc-common-docsets))))
+  (setq ddoc-activated-docsets
+        (delq docset ddoc-activated-docsets)))
 
 (defun ddoc-clean-all-connections ()
   "Clean all connections interactively."
   (interactive)
-  (setq ddoc-common-docsets nil
-        ddoc-open-connections nil))
+  (setq ddoc-open-connections nil
+        ddoc-activated-docsets nil))
 
 (defun ddoc-install-docset-from-file (docset-archive)
   "Extract the content of DOCSET-ARCHIVE.
@@ -636,57 +634,77 @@ activate the docset."
   ;; maps docset name parameter
   (interactive (ddoc-minibuffer-read "Install docset"
                                      (ddoc-contrib-docsets)))
-  ;; set feed url
-  (let ((feed-url (car (assoc-default docset-name
-                                      (ddoc--read-file
-                                       ddoc-cache-contrib-index-file)))))
-    ;; install docset (fetch/extract) asynchronous
-    (ddoc--install-docset feed-url docset-name)))
+  ;; it's available?
+  (unless (member docset-name (ddoc-contrib-docsets))
+    (error "Error, docset: %s not available" docset-name))
+  ;; already installed?
+  (if (ddoc-docset-installed-p docset-name)
+      (ddoc--message "Already installed :)")
+    ;; parse feed url
+    (let ((feed-url (car (assoc-default docset-name
+                                        (ddoc--read-file
+                                         ddoc-cache-contrib-index-file)))))
+      ;; install docset (fetch/extract) asynchronous
+      (ddoc--install-docset feed-url docset-name))))
 
 (defun ddoc-install-docset (docset-name)
   "Install, i.e, fetch/extract the DOCSET-NAME archive."
   ;; map the docset-name
   (interactive (ddoc-minibuffer-read "Install docset"
                                      (ddoc-official-docsets)))
-  ;; parse feed and tmp path
-  (let ((feed-url (format "%s/%s.xml"
-                          ddoc-docsets-feed-url
-                          docset-name))
-        (feed-tmp-path (format "%s%s-feed.xml"
-                               (temporary-file-directory)
-                               docset-name)))
-    ;; copy feed xml
-    (url-copy-file feed-url feed-tmp-path t)
-    ;; install docset after parsing the feed url
-    (ddoc--install-docset (ddoc-parse-archive-url feed-tmp-path) docset-name)))
+  ;; it's available?
+  (unless (member docset-name (ddoc-official-docsets))
+    (error "Error, docset: %s not available" docset-name))
+  ;; already installed?
+  (if (ddoc-docset-installed-p docset-name)
+      (ddoc--message "Already installed :)")
+    ;; parse feed url and tmp path
+    (let ((feed-url (format "%s/%s.xml"
+                            ddoc-docsets-feed-url
+                            docset-name))
+          (feed-tmp-path (format "%s%s-feed.xml"
+                                 (temporary-file-directory)
+                                 docset-name)))
+      ;; copy feed xml file
+      (url-copy-file feed-url feed-tmp-path t)
+      ;; install docset after parsing the feed url
+      (ddoc--install-docset (ddoc-parse-archive-url feed-tmp-path)
+                            docset-name))))
 
 (defun ddoc-activate-docset (docset)
   "Activate a DOCSET, i.e, make a connection to its database.
-If called interactively prompts for the docset name."
+If called interactively prompts/select the DOCSET name."
   ;; maps docset parameter
   (interactive (ddoc-minibuffer-read "Activate docset"
                                      (ddoc-installed-docsets)))
-  ;; add docset to docsets list
-  (push docset ddoc-common-docsets)
-  ;; start connection
-  (ddoc-add-connection docset))
+  ;; it's installed?
+  (unless (member docset (ddoc-installed-docsets))
+    (error "Error, docset: %s not installed" docset))
+  ;; try to establish a docset connection
+  (if (not (ddoc-add-connection docset))
+      (ddoc--message "Error, docset connection fail")
+    ;; save it on the docset activated list
+    (push docset ddoc-activated-docsets)))
 
 (defun ddoc-deactivate-docset (docset)
   "Deactivate DOCSET, i.e, update common docsets.
 If called interactively prompts for the docset name."
   ;; maps docset parameter
   (interactive (ddoc-minibuffer-read "Deactivate docset"
-                                     ddoc-common-docsets))
-  ;; delete its connection
-  (ddoc-del-connection docset)
-  ;; remove docset from common docsets
-  (ddoc-del-common-docset docset))
+                                     ddoc-activated-docsets))
+  ;; docset available?
+  (if (not docset)
+      (ddoc--message "There isn't any docset activated")
+    ;; delete its connection
+    (ddoc-del-connection docset)
+    ;; remove docset from the activated list
+    (ddoc-del-activated-docset docset)))
 
 (defun ddoc-find-file ()
   "Find dash documentation file."
   (interactive)
   ;; activate at least one docset (if necessary)
-  (and (not (> (length ddoc-common-docsets) 0))
+  (and (not (length> ddoc-activated-docsets 0))
        (call-interactively 'ddoc-activate-docset))
   ;; choose an entry and find-file (browse the url)
   (let* ((entries (ddoc-docsets-available-entries))
