@@ -611,7 +611,7 @@ Report an error unless a valid docset is selected."
   "Delete DOCSET from `ddoc-activated-docsets'."
   ;; delete docset from common docsets list
   (setq ddoc-activated-docsets
-        (delq docset ddoc-activated-docsets)))
+        (delete docset ddoc-activated-docsets)))
 
 (defun ddoc-clean-all-connections ()
   "Clean all connections interactively."
@@ -713,7 +713,7 @@ If called interactively prompts for the docset name."
     (ddoc-browse-url (cdr (assoc entry entries)))))
 
 ;;;###autoload
-(defun ddoc-echo-mode-state ()
+(defun ddoc-show-mode-state ()
   "Show ddoc minor mode state: on/off."
   (interactive)
   ;; show mode state in echo area
@@ -755,7 +755,7 @@ and disables it otherwise."
   ;; turn on ddoc mode
   (ddoc-mode 1)
   ;; show ddoc mode state: on/off
-  (ddoc-echo-mode-state))
+  (ddoc-show-mode-state))
 
 (defun turn-off-ddoc-mode ()
   "Disable ddoc minor mode."
@@ -763,7 +763,7 @@ and disables it otherwise."
   ;; turn off ddoc mode
   (ddoc-mode 0)
   ;; show ddoc mode state
-  (ddoc-echo-mode-state))
+  (ddoc-show-mode-state))
 
 (provide 'ddoc)
 
